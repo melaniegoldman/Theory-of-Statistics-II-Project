@@ -1,6 +1,6 @@
 library(maditr)
 twins <- read.csv("TWINS.csv")
-#Select rows with babies waying less than 2 kgs
+#Select rows with babies weighing less than 2 kgs
 twins <- twins[twins$dbirwt_0 < 2500 & twins$dbirwt_1 < 2500,]
 
 #Randomly select which twin 
@@ -53,66 +53,15 @@ y=usek[,1]
 
 
 bart.tot <- pbart(x.train=xt,   y.train=y,  x.test=xp)
+# first just effect of treatment on treated
+diffs=bart.tot$yhat.train[,usek$treatment==1]-bart.tot$yhat.test
+mndiffs=apply(diffs,1,mean)
+mean(mndiffs)
+sd(mndiffs)
 
-#pbart function
-library(BART)
-B <- getOption('mc.cores', 1)
-figures = getOption('figures', default='NONE')
+# get a sense of t.e. heterogeneity
+hist(apply(diffs,2,mean))
 
-data(arq)
-str(arq)
-arth <- as.matrix(arq)
-
-twins_data <- as.matrix(twins_data)
-N <- length(twins_data[ , 'gestat10'])
-
-gestat10 <- 0:9
-H <- length(gestat10)
-
-post1 <- mc.pbart(x.train=xt, y.train=y,
-                  mc.cores=B, seed=99)
-
-for(i in 1:2)
-  for(j in 1:H) {
-    x. <- xt
-    x.[ , 'treatment'] <- i
-    x.[ , 'gestat10'] <- gestat10[j]
-    if(i==1 && j==1) x.test <- x.
-    else x.test <- rbind(x.test, x.)
-  }
-
-pred1 <- predict(post1, newdata=x.test, mc.cores=B)
-
-M <- nrow(pred1$prob.test)
-##Friedman's partial dependence function
-pd1 <- matrix(nrow=M, ncol=H)
-pd2 <- matrix(nrow=M, ncol=H)
-
-par(mfrow=c(1, 2))
-
-for(j in 1:H) {
-  h <- (j-1)*N
-  pd1[ , j] <- apply(pred1$prob.test[ , h+1:N], 1, mean)
-  h <- h+N*H
-  pd2[ , j] <- apply(pred1$prob.test[ , h+1:N], 1, mean)
-}
-
-pd1.mean <- apply(pd1, 2, mean)
-pd2.mean <- apply(pd2, 2, mean)
-pd1.025 <- apply(pd1, 2, quantile, probs=0.025)
-pd2.025 <- apply(pd2, 2, quantile, probs=0.025)
-pd1.975 <- apply(pd1, 2, quantile, probs=0.975)
-pd2.975 <- apply(pd2, 2, quantile, probs=0.975)
-
-plot(gestat10, pd1.mean, type='l', col='blue',
-     ylim=0:1, xlab='No. of gestation weeks prior to birth.', ylab=expression(p(x)),
-     sub='Treatment: 1(blue) vs. 0(red)')
-##sub='Low-back/buttock pain: M(blue) vs. F(red)')
-lines(gestat10, pd1.025, type='l', col='blue', lty=2)
-lines(gestat10, pd1.975, type='l', col='blue', lty=2)
-lines(gestat10, pd2.mean, type='l', col='red')
-lines(gestat10, pd2.025, type='l', col='red', lty=2)
-lines(gestat10, pd2.975, type='l', col='red', lty=2)
-lines(gestat10, rep(0, H), type='l')
-lines(gestat10, rep(1, H), type='l')
+usek$outcome <- factor(usek$outcome) #convert to factor
+lin_mod <- glm( outcome~., family = "binomial" ,data = usek)
 
