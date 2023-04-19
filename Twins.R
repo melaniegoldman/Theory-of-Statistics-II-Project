@@ -43,7 +43,6 @@ twins <- read.csv("twins_data.csv")
 
 
 # Run BART with binary response
-library(BayesTree)
 library(BART)
 usek=twins[,c("outcome","treatment",covs)]
 xt=as.matrix(sapply(data.frame(usek[,-1]), as.double))
@@ -65,3 +64,24 @@ hist(apply(diffs,2,mean))
 usek$outcome <- factor(usek$outcome) #convert to factor
 lin_mod <- glm( outcome~., family = "binomial" ,data = usek)
 
+
+#Other stuff from pbart example
+geweke <- gewekediag(bart.tot$yhat.train)
+plot(geweke$z, pch='.', cex=2, ylab='z', xlab='i',
+     sub=paste0('N:', n, ', k:', k),
+     xlim=c(1, n), ylim=c(-5, 5))
+lines(1:n, rep(-1.96, n), type='l', col=6)
+lines(1:n, rep(+1.96, n), type='l', col=6)
+lines(1:n, rep(-2.576, n), type='l', col=5)
+lines(1:n, rep(+2.576, n), type='l', col=5)
+lines(1:n, rep(-3.291, n), type='l', col=4)
+lines(1:n, rep(+3.291, n), type='l', col=4)
+lines(1:n, rep(-3.891, n), type='l', col=3)
+lines(1:n, rep(+3.891, n), type='l', col=3)
+lines(1:n, rep(-4.417, n), type='l', col=2)
+lines(1:n, rep(+4.417, n), type='l', col=2)
+text(c(1, 1), c(-1.96, 1.96), pos=2, cex=0.6, labels='0.95')
+text(c(1, 1), c(-2.576, 2.576), pos=2, cex=0.6, labels='0.99')
+text(c(1, 1), c(-3.291, 3.291), pos=2, cex=0.6, labels='0.999')
+text(c(1, 1), c(-3.891, 3.891), pos=2, cex=0.6, labels='0.9999')
+text(c(1, 1), c(-4.417, 4.417), pos=2, cex=0.6, labels='0.99999')
