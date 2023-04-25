@@ -11,10 +11,29 @@ head(twins)
 ###############
 ## Paper
 library("dbarts")
+library("remotes")
+library("BayesTree")
+remotes::install_github("vdorie/dbarts")
 
-x.train = 
-y.train =
-  
+
+xt=as.matrix(sapply(data.frame(usek[,-1]), as.double))
+xp=as.matrix(sapply(data.frame(usek[usek$treatment==1,-1]), as.double))
+xp[,1]=0
+y=as.double(usek[,1])
+bart.tot <- bart(x.train=xt,   y.train=y,  x.test=xp)
+
+
+usek = twins[, c("outcome","treatment", covs)]
+twins_data <- usek
+
+
+xt = as.matrix(sapply(data.frame(usek[, -1]), as.double))
+xp = as.matrix(sapply(data.frame(usek[usek$treatment == 1, -1]), as.double))
+xp[,1] = 0
+y = as.double(usek[,1])
+bart.tot <- bart(x.train = xt, y.train = y, x.test = xp)
+
+
 
 bart(
   x.train, y.train, x.test = matrix(0.0, 0, 0),
@@ -30,7 +49,6 @@ bart(
   seed = NA_integer_, proposalprobs = NULL,
   keepsampler = keeptrees
 )
-
 
 
 ###############

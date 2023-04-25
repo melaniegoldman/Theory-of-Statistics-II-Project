@@ -1,4 +1,7 @@
-library(maditr)
+library("maditr")
+library("tidyverse")
+"%!in%" <- function(x,y)!('%in%'(x,y))
+
 twins <- read.csv("TWINS.csv")
 #Select rows with babies weighing less than 2 kgs
 twins <- twins[twins$dbirwt_0 < 2500 & twins$dbirwt_1 < 2500,]
@@ -44,11 +47,11 @@ twins <- read.csv("twins_data.csv")
 
 # Run BART with binary response
 library(BART)
-usek=twins[,c("outcome","treatment",covs)]
-xt=as.matrix(sapply(data.frame(usek[,-1]), as.double))
-xp=as.matrix(sapply(data.frame(usek[usek$treatment==1,-1]), as.double))
-xp[,1]=0
-y=usek[,1]
+usek = twins[,c("outcome","treatment",covs)]
+xt = as.matrix(sapply(data.frame(usek[,-1]), as.double))
+xp = as.matrix(sapply(data.frame(usek[usek$treatment == 1,-1]), as.double))
+xp[,1] = 0
+y = usek[,1]
 
 
 bart.tot <- pbart(x.train=xt,   y.train=y,  x.test=xp)
@@ -63,6 +66,37 @@ hist(apply(diffs,2,mean))
 
 usek$outcome <- factor(usek$outcome) #convert to factor
 lin_mod <- glm( outcome~., family = "binomial" ,data = usek)
+
+
+
+# Run BART with ‘BayesTree’, used in the primary papers package
+library("BayesTree")
+
+bart(x.train = xt, y.train = y, binaryOffset = 1)
+
+
+
+
+
+f = function(x){
+  10*sin(pi*x[,1]*x[,2]) + 20*(x[,3]-.5)^2+10*x[,4]+5*x[,5]
+}
+sigma = 1.0 #y = f(x) + sigma*z , z~N(0,1)
+n = 100 #number of observations
+set.seed(99)
+x=matrix(runif(n*10),n,10) #10 variables, only first 5 matter
+Ey = f(x)
+y=Ey+sigma*rnorm(n)
+lmFit = lm(y~.,data.frame(x,y)) #compare lm fit to BART later
+##run BART
+set.seed(99)
+bartFit = bart(x,y,ndpost=200) #default is ndpost=1000, this is to run example fast.
+plot(bartFit) # plot bart fit
+##compare BART fit to linear matter and truth = Ey
+fitmat = cbind(y,Ey,lmFit$fitted,bartFit$yhat.train.mean)
+colnames(fitmat) = c('y','Ey','lm','bart')
+print(cor(fitmat))
+
 
 
 #Other stuff from pbart example
