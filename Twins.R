@@ -1,13 +1,14 @@
 library("maditr")
 library("tidyverse")
 "%!in%" <- function(x,y)!('%in%'(x,y))
+set.seed(23)
 
 twins <- read.csv("TWINS.csv")
 #Select rows with babies weighing less than 2 kgs
 twins <- twins[twins$dbirwt_0 < 2500 & twins$dbirwt_1 < 2500,]
 
 #Randomly select which twin 
-chosen_twin <- rbinom(n=nrow(twins), size=1, prob=0.05)
+chosen_twin <- rbinom(n=nrow(twins), size=1, prob=0.5)
 twins$chosen_twin <- chosen_twin
 
 #define treatment as being born heavier
