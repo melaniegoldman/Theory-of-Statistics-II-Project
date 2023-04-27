@@ -40,7 +40,6 @@ twins$outcome <- ifelse(twins$chosen_twin == 0,twins$mort_0, twins$mort_1)
 #select birth order of the chosen twin
 twins$bord <- ifelse(twins$chosen_twin == 0, twins$bord_0,twins$bord_1)
 
-
 n <- nrow(twins)
 #Percent of Lighter Twins that Died
 (sum(twins$mort_0)/n)*100
@@ -71,6 +70,29 @@ write.csv(twins, file = "twins_data.csv", row.names = F)
 # read in filtered data
 twins <- read.csv("twins_data.csv")
 
+#Estimate Casual Effects using BART (Melanie 4/27/23)---------------------------
+
+#remove NA values
+twins <- na.omit(twins)
+
+#Create Training and Test Sets
+train_sample <- sample(1:nrow(twins),0.8*nrow(twins), replace = F)
+data_train <- twins[train_sample,]
+data_test <- twins[-train_sample,]
+
+#Create vectors of outcome and treatment and matrix of confs
+outcome <- data_train$outcome
+treatment <- data_train$treatment
+confs <- data_train[,covs]
+
+#fit model using bartc in bartCause package
+library(bartCause)
+bart_fit <- bartc(response = outcome, treatment = treatment, confounders = confs, keepTrees = TRUE )
+CATE <- fitted(bart_fit, type = "cate")
+PATE <- fitted(bart_fit, type = "pate")
+SATE <- fitted(bart_fit, type = "sate")
+
+#END ---------------------------------------
 
 # Run BART with binary response
 library(BART)
