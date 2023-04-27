@@ -1,7 +1,27 @@
+####################################################################
+####################################################################
+## Outline
+##
+## 1) Packages and Setup
+## 2) Data Preparation
+## 3) BART Evaluation
+## 4) Linear Fitting Evaluation
+## 5) Propensity Score Evaluation
+## 6) Comparitive Metrics
+## 7) Plotting
+
+
+
+####################################################################
+## 1) Packages and Setup
 library("maditr")
 library("tidyverse")
 "%!in%" <- function(x,y)!('%in%'(x,y))
 
+
+
+####################################################################
+## 2) Data Preparation
 twins <- read.csv("TWINS.csv")
 #Select rows with babies weighing less than 2 kgs
 twins <- twins[twins$dbirwt_0 < 2500 & twins$dbirwt_1 < 2500,]
@@ -41,7 +61,13 @@ ncovs=length(covs)
 #export data
 write.csv(twins, file = "twins_data.csv", row.names = F)
 
-#read in filtered data
+
+
+
+
+####################################################################
+## 3) BART Evaluation
+# read in filtered data
 twins <- read.csv("twins_data.csv")
 
 
@@ -75,9 +101,6 @@ library("BayesTree")
 bart(x.train = xt, y.train = y, binaryOffset = 1)
 
 
-
-
-
 f = function(x){
   10*sin(pi*x[,1]*x[,2]) + 20*(x[,3]-.5)^2+10*x[,4]+5*x[,5]
 }
@@ -99,7 +122,7 @@ print(cor(fitmat))
 
 
 
-#Other stuff from pbart example
+# Other stuff from pbart example
 geweke <- gewekediag(bart.tot$yhat.train)
 plot(geweke$z, pch='.', cex=2, ylab='z', xlab='i',
      sub=paste0('N:', n, ', k:', k),
@@ -119,3 +142,18 @@ text(c(1, 1), c(-2.576, 2.576), pos=2, cex=0.6, labels='0.99')
 text(c(1, 1), c(-3.291, 3.291), pos=2, cex=0.6, labels='0.999')
 text(c(1, 1), c(-3.891, 3.891), pos=2, cex=0.6, labels='0.9999')
 text(c(1, 1), c(-4.417, 4.417), pos=2, cex=0.6, labels='0.99999')
+
+
+
+
+####################################################################
+## 4) Linear Fitting Evaluation
+
+####################################################################
+## 5) Propensity Score Evaluation
+
+####################################################################
+## 6) Comparitive Metrics
+
+####################################################################
+## 7) Plotting
