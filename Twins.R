@@ -9,6 +9,7 @@
 ## 5) Propensity Score Evaluation
 ## 6) Comparitive Metrics
 ## 7) Plotting
+## 8) Other
 
 
 
@@ -171,12 +172,24 @@ text(c(1, 1), c(-4.417, 4.417), pos=2, cex=0.6, labels='0.99999')
 
 ####################################################################
 ## 4) Linear Fitting Evaluation
+twinsSubset   <- twins[,c(names(twins)[names(twins) %in% covs], "outcome", "treatment")]
+
+linearFitting <- glm(outcome ~ ., data = twinsSubset)
+
+linearFitting$coefficients["treatment"]
+
+
 
 ####################################################################
 ## 5) Propensity Score Evaluation
+library("Matching")
+
 
 ####################################################################
 ## 6) Comparitive Metrics
 
 ####################################################################
 ## 7) Plotting
+
+####################################################################
+## 8) Other
