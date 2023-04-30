@@ -1,0 +1,3 @@
+load("/Users/shelbygolden/Desktop/Life/Personal/College/Masters/Johns Hopkins/Statistical Theory II/Stat Theory II_Spring 2023/Semester Project/Project GitHub Repo/Supplementary Code_Paper/data/example.data.rdata")
+ls()
+ihdp

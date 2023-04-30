@@ -172,7 +172,7 @@ text(c(1, 1), c(-4.417, 4.417), pos=2, cex=0.6, labels='0.99999')
 
 ####################################################################
 ## 4) Linear Fitting Evaluation
-twinsSubset   <- twins[,c(names(twins)[names(twins) %in% covs], "outcome", "treatment")]
+twinsSubset   <- data_train[,c(names(twins)[names(twins) %in% covs], "outcome", "treatment")]
 
 linearFitting <- glm(outcome ~ ., data = twinsSubset)
 
@@ -183,6 +183,30 @@ linearFitting$coefficients["treatment"]
 ####################################################################
 ## 5) Propensity Score Evaluation
 library("Matching")
+
+# Using the linear fitted model above
+qx = linearFitting$fitted
+
+## genetic matching should also explicitly control for qx
+twinsProp = cbind.data.frame(twinsSubset, "qx" = qx)
+## use this just to get the design matrix needed for GenMatch
+modqx2 = glm(outcome ~ ., data = twinsProp)
+
+## need formula for balance statistics to explicitly control what quadratic
+## terms are included so we don't waste time with squared binary variables
+form.quadz <- as.formula("outcome ~ qx + (pldel + birattnd + brstate + stoccfipb + 
+                          mager8 + ormoth + mrace + meduc6 + dmar + mplbir + mpre5 + 
+                          adequacy + orfath + frace + birmon + gestat10 + csex + 
+                          anemia + cardiac + lung + diabetes + herpes + hydra +
+                          hemo + chyper + phyper + eclamp + incervix + pre4000 + 
+                          preterm + renal + rh + uterine + othermr + tobacco + 
+                          alcohol + cigar6 + drink5 + crace + data_year + nprevistq + 
+                          dfageq + feduc6 + dlivord_min + dtotord_min + bord + 
+                          brstate_reg + stoccfipb_reg + mplbir_reg)^2")
+
+form.quadz <- as.formula("dose400 ~ qx + (bw + momage + nnhealth + birth.o + parity + moreprem + cigs + alcohol + ppvt.imp + bwg + female + mlt.birtF + b.marryF + livwhoF + languageF + whenprenF + drugs + othstudy + momed4F + siteF + momraceF + workdur.imp)^2")
+mod.quad=glm(formula=form.quadz,data=usek2,x=TRUE)
+ncol(mod.quad$x)
 
 
 ####################################################################
