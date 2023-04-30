@@ -17,6 +17,10 @@
 ## 1) Packages and Setup
 library("maditr")
 library("tidyverse")
+library("bartCause")
+library("Matching")
+library("rbounds")
+library("rgenoud")
 "%!in%" <- function(x,y)!('%in%'(x,y))
 set.seed(23)
 
@@ -58,6 +62,7 @@ covs=c("pldel","birattnd","brstate","stoccfipb","mager8","ormoth", "mrace","medu
        "tobacco", "alcohol", "cigar6", "drink5",   "crace","data_year", "nprevistq", 
        "dfageq", "feduc6",  "dlivord_min", "dtotord_min", "bord",
        "brstate_reg","stoccfipb_reg", "mplbir_reg") 
+
 ncovs=length(covs)
 #export data
 write.csv(twins, file = "twins_data.csv", row.names = F)
@@ -87,14 +92,125 @@ treatment <- data_train$treatment
 confs <- data_train[,covs]
 
 #fit model using bartc in bartCause package
-library(bartCause)
-bart_fit <- bartc(response = outcome, treatment = treatment, confounders = confs, keepTrees = TRUE )
+bart_fit <- bartc(response = outcome, treatment = treatment, 
+                  confounders = confs, keepTrees = TRUE,
+                  n.burn = 100, estimand  = "ate")
 CATE <- fitted(bart_fit, type = "cate")
 PATE <- fitted(bart_fit, type = "pate")
 SATE <- fitted(bart_fit, type = "sate")
 
+
+bart_fit_att <- bartc(response = outcome, treatment = treatment, 
+                  confounders = confs, keepTrees = TRUE,
+                  n.burn = 100, estimand  = "att")
+CATE_att <- fitted(bart_fit_att, type = "cate")
+PATE_att <- fitted(bart_fit_att, type = "pate")
+SATE_att <- fitted(bart_fit_att, type = "sate")
+
 #END ---------------------------------------
 
+
+# Run BART with ‘BayesTree’, used in the primary papers package
+library("BayesTree")
+
+x = as.matrix(data_train[, c(covs, "treatment")]) %>% head()
+y = data_train$outcome
+
+BayesTree::bart(x, y, ndpost=200)
+
+
+f = function(x){
+  10*sin(pi*x[,1]*x[,2]) + 20*(x[,3]-.5)^2+10*x[,4]+5*x[,5]
+}
+sigma = 1.0 #y = f(x) + sigma*z , z~N(0,1)
+n = 100 #number of observations
+x = matrix(runif(n*10),n,10) #10 variables, only first 5 matter
+Ey = f(x)
+y = Ey+sigma*rnorm(n)
+sampleData = data.frame(x,y)
+lmFit = lm(y ~ ., data = sampleData) #compare lm fit to BART later
+##run BART
+bartFit = BayesTree::bart(x, y, ndpost=200) #default is ndpost=1000, this is to run example fast.
+plot(bartFit) # plot bart fit
+##compare BART fit to linear matter and truth = Ey
+fitmat = cbind(y,Ey,lmFit$fitted,bartFit$yhat.train.mean)
+colnames(fitmat) = c('y','Ey','lm','bart')
+print(cor(fitmat))
+
+
+
+
+
+
+
+####################################################################
+## 4) Linear Fitting Evaluation
+twinsSubset   <- data_train[,c(names(twins)[names(twins) %in% covs], "outcome", "treatment")]
+
+linearFitting <- glm(outcome ~ ., family = "binomial", data = twinsSubset)
+
+linearFitting$coefficients["treatment"]
+
+
+
+####################################################################
+## 5) Propensity Score Evaluation
+## source: https://www.youtube.com/watch?v=rHVGj1F1D_4
+attach(twinsSubset)
+
+# Defining variables (Tr is treatment, Y is outcome, X are independent variables)
+Tr <- cbind(treatment)
+Y  <- cbind(outcome)
+X  <- cbind(pldel, birattnd, brstate, stoccfipb, mager8, ormoth, mrace, meduc6, dmar, 
+            mplbir, mpre5, adequacy, orfath, frace, birmon, gestat10, csex, anemia, 
+            cardiac, lung, diabetes, herpes, hydra, hemo, chyper, phyper, eclamp, 
+            incervix, pre4000, preterm, renal, rh, uterine, othermr, tobacco, 
+            alcohol, cigar6, drink5, crace, data_year, nprevistq, dfageq, feduc6,
+            dlivord_min, dtotord_min, bord, brstate_reg, stoccfipb_reg, mplbir_reg)
+
+# Descriptive statistics
+summary(Tr)
+summary(Y)
+summary(X)
+
+# Propensity score model 
+glm1 <- glm(Tr ~ X, family = binomial(link = "probit"), data = twinsSubset)
+summary(glm1)
+
+# Average treatment on the treated effect
+rr1 <- Match(Y = Y, Tr = Tr, X = glm1$fitted)
+summary(rr1)
+
+# Checking the balancing property
+var <- brstate
+var <- frace
+var <- cigar6
+var <- drink5 # MatchBalance did not improve, but qqPlot shows acceptable matching
+var <- feduc6
+var <- dlivord_min # interesting qqPlot; shows poor matching at higher dlibord_min
+
+MatchBalance(Tr ~ X, match.out = rr1, nboots = 0, data = twinsSubset)
+qqplot(var[rr1$index.control], var[rr1$index.treated])
+abline(coef = c(0, 1), col = 2)
+
+# Genetic matching
+gen1  <- GenMatch(Tr = Tr, X = X, BalanceMatrix = X, pop.size = 10)
+mgen1 <- Match(Y = Y, Tr = Tr, X = X, Weight.matrix = gen1)
+MatchBalance(Tr ~ X, data = mydata, match.out = mgen1, nboots = 0)
+
+# Sensitivity tests
+psens(mgen1, Gamma = 1.7, GammaInc = 0.05)
+hlsens(mgen1, Gamma = 1.7, GammaInc = 0.05, 0.1)
+
+
+####################################################################
+## 6) Comparitive Metrics
+
+####################################################################
+## 7) Plotting
+
+####################################################################
+## 8) Other
 # Run BART with binary response
 library(BART)
 usek = twins[,c("outcome","treatment",covs)]
@@ -118,34 +234,6 @@ usek$outcome <- factor(usek$outcome) #convert to factor
 lin_mod <- glm( outcome~., family = "binomial" ,data = usek)
 
 
-
-# Run BART with ‘BayesTree’, used in the primary papers package
-library("BayesTree")
-
-bart(x.train = xt, y.train = y, binaryOffset = 1)
-
-
-f = function(x){
-  10*sin(pi*x[,1]*x[,2]) + 20*(x[,3]-.5)^2+10*x[,4]+5*x[,5]
-}
-sigma = 1.0 #y = f(x) + sigma*z , z~N(0,1)
-n = 100 #number of observations
-set.seed(99)
-x=matrix(runif(n*10),n,10) #10 variables, only first 5 matter
-Ey = f(x)
-y=Ey+sigma*rnorm(n)
-lmFit = lm(y~.,data.frame(x,y)) #compare lm fit to BART later
-##run BART
-set.seed(99)
-bartFit = bart(x,y,ndpost=200) #default is ndpost=1000, this is to run example fast.
-plot(bartFit) # plot bart fit
-##compare BART fit to linear matter and truth = Ey
-fitmat = cbind(y,Ey,lmFit$fitted,bartFit$yhat.train.mean)
-colnames(fitmat) = c('y','Ey','lm','bart')
-print(cor(fitmat))
-
-
-
 # Other stuff from pbart example
 geweke <- gewekediag(bart.tot$yhat.train)
 plot(geweke$z, pch='.', cex=2, ylab='z', xlab='i',
@@ -166,54 +254,3 @@ text(c(1, 1), c(-2.576, 2.576), pos=2, cex=0.6, labels='0.99')
 text(c(1, 1), c(-3.291, 3.291), pos=2, cex=0.6, labels='0.999')
 text(c(1, 1), c(-3.891, 3.891), pos=2, cex=0.6, labels='0.9999')
 text(c(1, 1), c(-4.417, 4.417), pos=2, cex=0.6, labels='0.99999')
-
-
-
-
-####################################################################
-## 4) Linear Fitting Evaluation
-twinsSubset   <- data_train[,c(names(twins)[names(twins) %in% covs], "outcome", "treatment")]
-
-linearFitting <- glm(outcome ~ ., data = twinsSubset)
-
-linearFitting$coefficients["treatment"]
-
-
-
-####################################################################
-## 5) Propensity Score Evaluation
-library("Matching")
-
-# Using the linear fitted model above
-qx = linearFitting$fitted
-
-## genetic matching should also explicitly control for qx
-twinsProp = cbind.data.frame(twinsSubset, "qx" = qx)
-## use this just to get the design matrix needed for GenMatch
-modqx2 = glm(outcome ~ ., data = twinsProp)
-
-## need formula for balance statistics to explicitly control what quadratic
-## terms are included so we don't waste time with squared binary variables
-form.quadz <- as.formula("outcome ~ qx + (pldel + birattnd + brstate + stoccfipb + 
-                          mager8 + ormoth + mrace + meduc6 + dmar + mplbir + mpre5 + 
-                          adequacy + orfath + frace + birmon + gestat10 + csex + 
-                          anemia + cardiac + lung + diabetes + herpes + hydra +
-                          hemo + chyper + phyper + eclamp + incervix + pre4000 + 
-                          preterm + renal + rh + uterine + othermr + tobacco + 
-                          alcohol + cigar6 + drink5 + crace + data_year + nprevistq + 
-                          dfageq + feduc6 + dlivord_min + dtotord_min + bord + 
-                          brstate_reg + stoccfipb_reg + mplbir_reg)^2")
-
-form.quadz <- as.formula("dose400 ~ qx + (bw + momage + nnhealth + birth.o + parity + moreprem + cigs + alcohol + ppvt.imp + bwg + female + mlt.birtF + b.marryF + livwhoF + languageF + whenprenF + drugs + othstudy + momed4F + siteF + momraceF + workdur.imp)^2")
-mod.quad=glm(formula=form.quadz,data=usek2,x=TRUE)
-ncol(mod.quad$x)
-
-
-####################################################################
-## 6) Comparitive Metrics
-
-####################################################################
-## 7) Plotting
-
-####################################################################
-## 8) Other
