@@ -108,41 +108,6 @@ CATE_att <- fitted(bart_fit_att, type = "cate")
 PATE_att <- fitted(bart_fit_att, type = "pate")
 SATE_att <- fitted(bart_fit_att, type = "sate")
 
-#END ---------------------------------------
-
-
-# Run BART with ‘BayesTree’, used in the primary papers package
-library("BayesTree")
-
-x = as.matrix(data_train[, c(covs, "treatment")]) %>% head()
-y = data_train$outcome
-
-BayesTree::bart(x, y, ndpost=200)
-
-
-f = function(x){
-  10*sin(pi*x[,1]*x[,2]) + 20*(x[,3]-.5)^2+10*x[,4]+5*x[,5]
-}
-sigma = 1.0 #y = f(x) + sigma*z , z~N(0,1)
-n = 100 #number of observations
-x = matrix(runif(n*10),n,10) #10 variables, only first 5 matter
-Ey = f(x)
-y = Ey+sigma*rnorm(n)
-sampleData = data.frame(x,y)
-lmFit = lm(y ~ ., data = sampleData) #compare lm fit to BART later
-##run BART
-bartFit = BayesTree::bart(x, y, ndpost=200) #default is ndpost=1000, this is to run example fast.
-plot(bartFit) # plot bart fit
-##compare BART fit to linear matter and truth = Ey
-fitmat = cbind(y,Ey,lmFit$fitted,bartFit$yhat.train.mean)
-colnames(fitmat) = c('y','Ey','lm','bart')
-print(cor(fitmat))
-
-
-
-
-
-
 
 ####################################################################
 ## 4) Linear Fitting Evaluation
@@ -223,10 +188,7 @@ hlsens(mgen1$mdata$Tr, y = mgen1$mdata$Y, Gamma = 1.7, GammaInc = 0.05, 0.1)
 ####################################################################
 ## 7) Plotting
 
-## Correlation plots between treatment and outcome for proensity score matching
-
-## ROC
-## https://www.digitalocean.com/community/tutorials/plot-roc-curve-r-programming
+## For Melanie:
 
 ## Correlation plots with 
 ##    - treatment ~ outcome
@@ -236,7 +198,14 @@ hlsens(mgen1$mdata$Tr, y = mgen1$mdata$Y, Gamma = 1.7, GammaInc = 0.05, 0.1)
 ## counter to the economics paper?
 ##    - all > 2.5 and < 2.5
 
+
+
+## For Shelby:
+
 ## Difference plot of the prediction on test and expectation
+
+## ROC
+## https://www.digitalocean.com/community/tutorials/plot-roc-curve-r-programming
 
 ####################################################################
 ## 8) Other
@@ -282,3 +251,33 @@ text(c(1, 1), c(-2.576, 2.576), pos=2, cex=0.6, labels='0.99')
 text(c(1, 1), c(-3.291, 3.291), pos=2, cex=0.6, labels='0.999')
 text(c(1, 1), c(-3.891, 3.891), pos=2, cex=0.6, labels='0.9999')
 text(c(1, 1), c(-4.417, 4.417), pos=2, cex=0.6, labels='0.99999')
+
+
+
+# Run BART with ‘BayesTree’, used in the primary papers package
+library("BayesTree")
+
+x = as.matrix(data_train[, c(covs, "treatment")]) %>% head()
+y = data_train$outcome
+
+BayesTree::bart(x, y, ndpost=200)
+
+
+f = function(x){
+  10*sin(pi*x[,1]*x[,2]) + 20*(x[,3]-.5)^2+10*x[,4]+5*x[,5]
+}
+sigma = 1.0 #y = f(x) + sigma*z , z~N(0,1)
+n = 100 #number of observations
+x = matrix(runif(n*10),n,10) #10 variables, only first 5 matter
+Ey = f(x)
+y = Ey+sigma*rnorm(n)
+sampleData = data.frame(x,y)
+lmFit = lm(y ~ ., data = sampleData) #compare lm fit to BART later
+##run BART
+bartFit = BayesTree::bart(x, y, ndpost=200) #default is ndpost=1000, this is to run example fast.
+plot(bartFit) # plot bart fit
+##compare BART fit to linear matter and truth = Ey
+fitmat = cbind(y,Ey,lmFit$fitted,bartFit$yhat.train.mean)
+colnames(fitmat) = c('y','Ey','lm','bart')
+print(cor(fitmat))
+
