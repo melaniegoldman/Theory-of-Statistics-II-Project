@@ -18,6 +18,7 @@
 library("maditr")
 library("tidyverse")
 library("bartCause")
+library("BART")
 library("Matching")
 library("rbounds")
 library("rgenoud")
@@ -87,9 +88,9 @@ data_train <- twins[train_sample,]
 data_test <- twins[-train_sample,]
 
 #Create vectors of outcome and treatment and matrix of confs
-outcome <- data_train$outcome
+outcome   <- data_train$outcome
 treatment <- data_train$treatment
-confs <- data_train[,covs]
+confs     <- data_train[,covs]
 
 #fit model using bartc in bartCause package
 bart_fit <- bartc(response = outcome, treatment = treatment, 
@@ -145,9 +146,10 @@ print(cor(fitmat))
 
 ####################################################################
 ## 4) Linear Fitting Evaluation
-twinsSubset   <- data_train[,c(names(twins)[names(twins) %in% covs], "outcome", "treatment")]
+twinsSubset   <- data_train[,c(names(twins)[names(twins) %in% covs], 
+                               "outcome", "treatment")]
 
-linearFitting <- glm(outcome ~ ., family = "binomial", data = twinsSubset)
+linearFitting <- glm(outcome ~ ., family = binomial(link = "probit"), data = twinsSubset)
 
 linearFitting$coefficients["treatment"]
 
@@ -195,16 +197,20 @@ abline(coef = c(0, 1), col = 2)
 
 # Genetic matching
 gen1  <- GenMatch(Tr = Tr, X = X, BalanceMatrix = X, pop.size = 10)
-mgen1 <- Match(Y = Y, Tr = Tr, X = X, Weight.matrix = gen1)
-MatchBalance(Tr ~ X, data = mydata, match.out = mgen1, nboots = 0)
+mgen1 <- Match(Y = Y, Tr = Tr, X = X, Weight.matrix = gen1, estimand = "ATE")
+summary.Match(mgen1)
+
+MatchBalance(Tr ~ X, data = twinsSubset, match.out = mgen1, nboots = 0)
 
 # Sensitivity tests
-psens(mgen1, Gamma = 1.7, GammaInc = 0.05)
-hlsens(mgen1, Gamma = 1.7, GammaInc = 0.05, 0.1)
+psens(mgen1$mdata$Tr, y = mgen1$mdata$Y, Gamma = 1.7, GammaInc = 0.05)
+hlsens(mgen1$mdata$Tr, y = mgen1$mdata$Y, Gamma = 1.7, GammaInc = 0.05, 0.1)
 
 
 ####################################################################
-## 6) Comparitive Metrics
+## 6) Comparative Metrics
+# ADD CORRELATION PLOT BETWEEN TREATMENT AND OUTCOME TO SHOW STRONG CORRELATION??
+# FOR PROPENSITY SCORE MATCHING
 
 ####################################################################
 ## 7) Plotting
@@ -212,7 +218,6 @@ hlsens(mgen1, Gamma = 1.7, GammaInc = 0.05, 0.1)
 ####################################################################
 ## 8) Other
 # Run BART with binary response
-library(BART)
 usek = twins[,c("outcome","treatment",covs)]
 xt = as.matrix(sapply(data.frame(usek[,-1]), as.double))
 xp = as.matrix(sapply(data.frame(usek[usek$treatment == 1,-1]), as.double))
