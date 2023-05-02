@@ -153,6 +153,8 @@ linearFitting <- glm(outcome ~ ., family = binomial(link = "probit"), data = twi
 
 linearFitting$coefficients["treatment"]
 
+## CAN WE ADD THE CATE, PATE, and SATE
+
 
 
 ####################################################################
@@ -209,11 +211,32 @@ hlsens(mgen1$mdata$Tr, y = mgen1$mdata$Y, Gamma = 1.7, GammaInc = 0.05, 0.1)
 
 ####################################################################
 ## 6) Comparative Metrics
-# ADD CORRELATION PLOT BETWEEN TREATMENT AND OUTCOME TO SHOW STRONG CORRELATION??
-# FOR PROPENSITY SCORE MATCHING
+
+## For glm() and propensity score
+## CATE
+## PATE
+## SATE
+
+## Prediction BART and propensity score
+##    - Melanie did it with the pbart() package
 
 ####################################################################
 ## 7) Plotting
+
+## Correlation plots between treatment and outcome for proensity score matching
+
+## ROC
+## https://www.digitalocean.com/community/tutorials/plot-roc-curve-r-programming
+
+## Correlation plots with 
+##    - treatment ~ outcome
+##    - outcome ~ weight
+
+## Histogram overlays - to justify connection with premies etc.?
+## counter to the economics paper?
+##    - all > 2.5 and < 2.5
+
+## Difference plot of the prediction on test and expectation
 
 ####################################################################
 ## 8) Other
