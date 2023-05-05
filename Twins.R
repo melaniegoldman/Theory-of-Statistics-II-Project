@@ -22,6 +22,7 @@ library("BART")
 library("Matching")
 library("rbounds")
 library("rgenoud")
+library("broom")
 "%!in%" <- function(x,y)!('%in%'(x,y))
 set.seed(23)
 
@@ -145,15 +146,18 @@ write.csv(elongated, file = "twins_Both2500.csv", row.names = F)
 #twinsAll <- read.csv("twins_One2500.csv")
 twinsAll <- read.csv("twins_Both2500.csv")
 
-twins <- twinsAll[twinsAll$chosen_twin == 1, ] %>% .[, names(.) %!in% "chosen_twin"]
+# select out the randomly chosen twin from the whole dataset to
+#     simulate observational study settings
+twins <- twinsAll[twinsAll$chosen_twin == 1, ] %>% 
+            .[, names(.) %!in% "chosen_twin"] %>% `rownames<-`(NULL)
+
+# remove NA values
+twins <- na.omit(twins)
 
 
 
 
 #Estimate Casual Effects using BART (Melanie 4/27/23)---------------------------
-
-#remove NA values
-twins <- na.omit(twins)
 
 #Create Training and Test Sets
 train_sample <- sample(1:nrow(twins),0.8*nrow(twins), replace = F)
@@ -173,7 +177,7 @@ bart_fit  <- bartc(response = outcome, treatment = treatment,
 
 ####################################################################
 ## 4) Linear Fitting Evaluation
-twinsSubset   <- data_train[,c(names(twins)[names(twins) %in% covs], 
+twinsSubset   <- data_train[, c(names(twins)[names(twins) %in% covs], 
                                "outcome", "treatment")]
 
 linearFitting <- glm(outcome ~ ., family = binomial(link = "probit"), data = twinsSubset)
@@ -205,6 +209,19 @@ summary(X)
 glm1 <- glm(Tr ~ X, family = binomial(link = "probit"), data = twinsSubset)
 summary(glm1)
 
+
+# Plot to show the skew of the weights
+tempDataset <- twinsSubset
+
+probWeights <- glm1 %>% augment(type.predict = "response", data = tempDataset) %>%
+  mutate(wts = 1/ifelse(treatment == 0, 1 - .fitted, .fitted))
+
+ggplot(probWeights, aes(x = wts)) + geom_density() + 
+  theme_classic() +
+  labs(title = "Propensity Score Weights Skew Plot", x ="Weights", y = "Density")
+
+
+
 # Average treatment on the treated effect
 rr1 <- Match(Y = Y, Tr = Tr, X = glm1$fitted)
 summary(rr1)
@@ -217,7 +234,7 @@ var <- drink5 # MatchBalance did not improve, but qqPlot shows acceptable matchi
 var <- feduc6
 var <- dlivord_min # interesting qqPlot; shows poor matching at higher dlibord_min
 
-MatchBalance(Tr ~ X, match.out = rr1, nboots = 0, data = twinsSubset)
+mBal_beforeGen <- MatchBalance(Tr ~ X, data = twinsSubset, match.out = rr1, nboots = 0)
 qqplot(var[rr1$index.control], var[rr1$index.treated])
 abline(coef = c(0, 1), col = 2)
 
@@ -226,7 +243,54 @@ gen1  <- GenMatch(Tr = Tr, X = X, BalanceMatrix = X, pop.size = 10)
 mgen1 <- Match(Y = Y, Tr = Tr, X = X, Weight.matrix = gen1, estimand = "ATE")
 summary.Match(mgen1)
 
-MatchBalance(Tr ~ X, data = twinsSubset, match.out = mgen1, nboots = 0)
+mBal <- MatchBalance(Tr ~ X, data = twinsSubset, match.out = mgen1, nboots = 0)
+
+mgen1$weights %>% unique()
+
+
+# Plot mean treatment and control effect before/after gen matching
+a1 <- lapply(mBal_beforeGen$AfterMatching, function(x) x$mean.Tr) %>% unlist()
+b1 <- lapply(mBal_beforeGen$BeforeMatching, function(x) x$mean.Tr) %>% unlist()
+
+c1 <- lapply(mBal_beforeGen$AfterMatching, function(x) x$mean.Co) %>% unlist()
+d1 <- lapply(mBal_beforeGen$BeforeMatching, function(x) x$mean.Co) %>% unlist()
+
+diff1 <- data.frame("Difference" = b1 - a1, "Eval" = "beforeGen.Tr")
+diff2 <- data.frame("Difference" = d1 - c1, "Eval" = "beforeGen.Co")
+
+
+a2 <- lapply(mBal$AfterMatching, function(x) x$mean.Tr) %>% unlist()
+b2 <- lapply(mBal$BeforeMatching, function(x) x$mean.Tr) %>% unlist()
+
+c2 <- lapply(mBal$AfterMatching, function(x) x$mean.Co) %>% unlist()
+d2 <- lapply(mBal$BeforeMatching, function(x) x$mean.Co) %>% unlist()
+
+diff3 <- data.frame("Difference" = b2 - a2, "Eval" = "afterGen.Tr")
+diff4 <- data.frame("Difference" = d2 - c2, "Eval" = "afterGen.Co")
+
+diff <- rbind(diff1, diff2, diff3, diff4)
+
+
+# Before/after mean treatment effect
+ggplot(diff, aes(Difference)) +
+  geom_density(data = subset(diff, Eval == 'beforeGen.Tr'), 
+               fill = "red", alpha = 0.2) + 
+  geom_density(data = subset(diff, Eval == 'afterGen.Tr'), 
+               fill = "blue", alpha = 0.2) + 
+  theme_classic() +
+  labs(title = "Xi Treatment Effects Before (red) and After (blue) GenMatch", 
+       x ="before - after matching mean treatment effect", y = "Density")
+
+ggplot(diff, aes(Difference)) + 
+  geom_density(data = subset(diff, Eval == 'beforeGen.Co'), 
+               fill = "red", alpha = 0.2) + 
+  geom_density(data = subset(diff, Eval == 'afterGen.Co'), 
+               fill = "blue", alpha = 0.2) + 
+  xlim(-0.25, 1) +
+  theme_classic() +
+  labs(title = "Xi Treatment Effects Before (red) and After (blue) GenMatch", 
+       x ="before - after matching mean control effect", y = "Density")
+
 
 # Sensitivity tests
 psens(mgen1$mdata$Tr, y = mgen1$mdata$Y, Gamma = 1.7, GammaInc = 0.05)
@@ -254,6 +318,14 @@ CATE <- fitted(linearFitting, type = "cate")
 
 ## Prediction BART and propensity score
 ##    - Melanie did it with the pbart() package
+testData <- data_test[, c(names(twins)[names(twins) %in% covs], 
+                        "treatment")]
+
+data_test$predOutcomes <- ifelse(predict.glm(linearFitting, testData, 
+                                            type = "response") < 0.5, 0, 1)
+
+
+
 
 ####################################################################
 ## 7) Plotting
