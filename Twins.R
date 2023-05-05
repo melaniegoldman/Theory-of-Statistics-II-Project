@@ -77,10 +77,14 @@ names(twins)[1] <- "pairID"
 
 # Find the twin pairs with a 20% or more weight difference and define
 #     treatment = 1 for heavier twin and = 0 for the lighter twin
-for(i in 1:nrow(twins)){
-  weights <- twins[i, c("dbirwt_0", "dbirwt_1")]
-  twins$weightDif[i] <- ifelse(max(weights)/min(weights) >= 1.2, 1, 0)
-}
+# for(i in 1:nrow(twins)){
+#   weights <- twins[i, c("dbirwt_0", "dbirwt_1")]
+#   twins$weightDif[i] <- ifelse(max(weights)/min(weights) >= 1.2, 1, 0)
+# }
+
+weight_pct_diff <- abs(twins$dbirwt_1 - twins$dbirwt_0)/((twins$dbirwt_1 + twins$dbirwt_0)/2)
+twins$weightDif <- ifelse(weight_pct_diff > 0.2, 1, 0)
+
 
 # Subset base on the twins weight difference
 twins <- twins[twins$weightDif == 1, names(twins) %!in% "weightDif"]
@@ -90,7 +94,7 @@ twins <- twins[twins$weightDif == 1, names(twins) %!in% "weightDif"]
 # Rows = 1 have one twin < 2.5kg, = 2 have both twins < 2.5kg, 0 = none < 2.5kg
 for(i in 1:nrow(twins)){
   weights <- twins[i, c("dbirwt_0", "dbirwt_1")]
-  twins$wght2500[i] <- ifelse(max(weights) >= 2500 & min(weights) < 2500, 1, 
+  twins$wght2500[i] <- ifelse(max(weights) >= 2500 & min(weights) < 2500, 1,
                               ifelse(max(weights) < 2500 & min(weights) < 2500, 2, 0))
 }
 
@@ -113,22 +117,26 @@ elongated <- rbind(cbind(twinsMed$pairID, twin0, twinsMed[, names(twinsMed) %in%
                    cbind(twinsMed$pairID, twin1, twinsMed[, names(twinsMed) %in% covs]) )
 names(elongated)[1] <- "pairID"
 
-
 for(i in 1:length(unique(elongated$pairID)) ){
   ID <- unique(elongated$pairID)[i]
   
   one <- rbinom(1, 1, 0.5)
   two <- ifelse(one == 1, 0, 1)
   
-  elongated[elongated$pairID == ID, "chosen_twin"]  <- c(one, two)
+  elongated[elongated$pairID == ID,"chosen_twin"]  <- c(one, two)
 }
 
 
 # Define the heavier twin as treatment = 1 and the lighter as treatment = 0
-for(i in 1:length(unique(elongated$pairID)) ){
-  elongated[elongated$pairID == unique(elongated$pairID)[i], "treatment"] <- 
-    ifelse(subset$dbirwt == max(subset$dbirwt), 1, 0)
+for(i in 1:length(unique(elongated$pairID)) ){ 
+  subset <- elongated[elongated$pairID == unique(elongated$pairID)[i], ]
+  elongated[rownames(subset), "treatment"] <- ifelse(subset$dbirwt == max(subset$dbirwt), 1, 0) 
 }
+
+# for(i in 1:length(unique(elongated$pairID)) ){
+#   elongated[elongated$pairID == unique(elongated$pairID)[i], "treatment"] <- 
+#     ifelse(subset$dbirwt == max(subset$dbirwt), 1, 0)
+# }
 
 
 #write.csv(elongated, file = "twins_One2500.csv", row.names = F)
@@ -176,7 +184,7 @@ bart_fit  <- bartc(response = outcome, treatment = treatment,
 twinsSubset   <- data_train[,c(names(twins)[names(twins) %in% covs], 
                                "outcome", "treatment")]
 
-linearFitting <- glm(outcome ~ ., family = binomial(link = "probit"), data = twinsSubset)
+linearFitting <- glm(outcome ~ ., family = "binomial", data = twinsSubset)
 
 linearFitting$coefficients["treatment"]
 
@@ -268,7 +276,74 @@ CATE <- fitted(linearFitting, type = "cate")
 ## counter to the economics paper?
 ##    - all > 2.5 and < 2.5
 
+library(plotly)
 
+#Twins with all weights
+twins <- read.csv("TWINS.csv")
+chosen_twin <- rbinom(n = nrow(twins), size = 1, prob = 0.5)
+twins$treatment <- ifelse(chosen_twin == 0, twins$dbirwt_0 > twins$dbirwt_1, twins$dbirwt_1 > twins$dbirwt_0)
+twins$treatment <- as.integer(twins$treatment)
+twins$outcome <- ifelse(chosen_twin == 0, twins$mort_0, twins$mort_1)
+twins$bord <- ifelse(chosen_twin == 0, twins$bord_0, twins$bord_1)
+twins$dbirwt <- ifelse(chosen_twin == 0, twins$dbirwt_0, twins$dbirwt_1)
+twins_allWeights <- twins
+
+#Twins with weight both less than 2500 grams
+twins <- read.csv("twins_Both2500.csv")
+twins_both2500 <- twins[twins$chosen_twin == 1, ] %>% .[, names(.) %!in% "chosen_twin"]
+twins_both2500 <- na.omit(twins_both2500)
+
+
+#plot margin
+m <- list(
+  l = 50,
+  r = 50,
+  b = 100,
+  t = 100,
+  pad = 4
+)
+
+#Create histograms for twins of all weights
+filtered_twins <- twins_allWeights
+hists_allWeights <- lapply(seq_along(filtered_twins), function(x){
+  plot_ly(data = filtered_twins, alpha = 0.6,type = "histogram", x = filtered_twins[,x], split =~outcome) %>%
+    layout(
+      barmode="stack",
+      bargap=0.1,
+      margin = m,
+      legend=list(title=list(text='<b> Outcome </b>')),
+      title = paste('Histogram of', names(filtered_twins[x])), xaxis = list(title =names(filtered_twins[x]) ), yaxis = list(title = "Frequency"))
+  #hist(filtered_twins[,x], main = paste("Histogram of",names(filtered_twins[x])), xlab = names(filtered_twins[x]))
+})
+hists_allWeights[[17]] #gestat10
+
+#Create histograms for twins with weights less than 2500 grams
+filtered_twins <- twins_both2500
+hists_both2500 <- lapply(seq_along(filtered_twins), function(x){
+  plot_ly(data = filtered_twins, alpha = 0.6,type = "histogram", x = filtered_twins[,x], split =~outcome) %>%
+    layout(
+      barmode="stack",
+      bargap=0.1,
+      margin = m,
+      legend=list(title=list(text='<b> Outcome </b>')),
+      title = paste('Histogram of', names(filtered_twins[x])), xaxis = list(title =names(filtered_twins[x]) ), yaxis = list(title = "Frequency"))
+  #hist(filtered_twins[,x], main = paste("Histogram of",names(filtered_twins[x])), xlab = names(filtered_twins[x]))
+})
+hists_both2500[[21]]
+
+#Export Histograms - uncomment first to export new plots
+# for (i in 1:length(hists_allWeights)){
+#   suppressWarnings(
+#     export(hists_allWeights[[i]], file = paste0("Histograms (All Twins)/",names(twins_allWeights)[i],"_hist.png"))
+#   )
+# }
+# 
+# 
+# for (i in 1:length(hists_both2500)){
+#   suppressWarnings(
+#     export(hists_both2500[[i]], file = paste0("Histograms (Both Less Than 2500g)/",names(twins_both2500)[i],"_hist.png"))
+#   )
+# }
 
 ## For Shelby:
 
