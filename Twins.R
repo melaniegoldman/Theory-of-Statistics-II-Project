@@ -318,19 +318,40 @@ PATE <- fitted(bart_fit, type = "pate")
 SATE <- fitted(bart_fit, type = "sate")
 
 
-# Paper metrics for glm()
-CATE <- fitted(linearFitting, type = "cate")
-
-# Paper metrics for propensity scoring
-
-
-## Prediction BART and propensity score
-##    - Melanie did it with the pbart() package
+# Prediction for BART
 testData <- data_test[, c(names(twins)[names(twins) %in% covs], 
-                        "treatment")]
+                          "treatment")]
 
-data_test$predOutcomes <- ifelse(predict.glm(linearFitting, testData, 
+names(testData)[names(testData) == "treatment"] <- "z"
+
+
+predBART <- predict(bart_fit, testData, type = "y.0") %>% t() %>%
+            as.data.frame() %>% .[,50]
+  # NOTE: type must be in 'mu', 'y', 'mu.0', 'mu.1', 'y.0', 'y.1', 
+  #     'icate', 'ite', 'p.score'
+
+ifelse(predBART > 0.5, 1, 0)
+
+predBART2 <- predict(bart_fit, testData, type = "y.1") %>% t() %>%
+  as.data.frame() %>% .[,50]
+
+
+# Prediction for glm()
+names(testData)[names(testData) == "z"] <- "treatment"
+
+data_test$glmOutcomes <- ifelse(predict.glm(linearFitting, testData, 
                                             type = "response") < 0.5, 0, 1)
+
+# Prediction for standard propensity score matching
+# This section does not work. Requires the treatment column
+#     which is only present in the Match() output
+names(glm1$coefficients) <- names(linearFitting$coefficients)[-51]
+
+temp_testData <- testData[, -50]
+
+data_test$propOutcomes <- ifelse(predict.glm(glm1, temp_testData, 
+                                             type = "response") < 0.5, 0, 1)
+
 
 
 
@@ -416,6 +437,8 @@ hists_both2500[[21]]
 #     export(hists_both2500[[i]], file = paste0("Histograms (Both Less Than 2500g)/",names(twins_both2500)[i],"_hist.png"))
 #   )
 # }
+
+
 
 ## For Shelby:
 
