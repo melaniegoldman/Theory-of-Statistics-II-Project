@@ -31,20 +31,20 @@ set.seed(23)
 ## 2) Data Preparation
 twins <- read.csv("TWINS.csv")
 #Select rows with babies weighing less than 2 kgs
-twins <- twins[twins$dbirwt_0 < 2500 & twins$dbirwt_1 < 2500,]
+twins <- twins[twins$dbirwt_0 < 2500 & twins$dbirwt_1 < 2500, ]
 
 #Randomly select which twin 
-chosen_twin <- rbinom(n=nrow(twins), size=1, prob=0.5)
+chosen_twin <- rbinom(n = nrow(twins), size = 1, prob = 0.5)
 twins$chosen_twin <- chosen_twin
 
 #define treatment as being born heavier
-twins$treatment <- ifelse(twins$chosen_twin == 0, twins$dbirwt_0 > twins$dbirwt_1,twins$dbirwt_1 > twins$dbirwt_0)
+twins$treatment <- ifelse(twins$chosen_twin == 0, twins$dbirwt_0 > twins$dbirwt_1, twins$dbirwt_1 > twins$dbirwt_0)
 twins$treatment <- as.integer(twins$treatment)
 #define outcome as whether or not selected twin survived first year of life
-twins$outcome <- ifelse(twins$chosen_twin == 0,twins$mort_0, twins$mort_1)
+twins$outcome <- ifelse(twins$chosen_twin == 0, twins$mort_0, twins$mort_1)
 
 #select birth order of the chosen twin
-twins$bord <- ifelse(twins$chosen_twin == 0, twins$bord_0,twins$bord_1)
+twins$bord <- ifelse(twins$chosen_twin == 0, twins$bord_0, twins$bord_1)
 
 n <- nrow(twins)
 #Percent of Lighter Twins that Died
@@ -53,6 +53,7 @@ n <- nrow(twins)
 #Percent of Heavier Twins that Died
 (sum(twins$mort_1)/n)*100
 # ~7.2%
+
 
 removed <- c("mort_0","mort_1","dbirwt_0","dbirwt_1", "infant_id_0", 
              "infant_id_1","bord_0", "bord_1")
@@ -70,12 +71,84 @@ write.csv(twins, file = "twins_data.csv", row.names = F)
 
 
 
+############ alternate
+twins <- read.csv("TWINS.csv")
+names(twins)[1] <- "pairID"
+
+# Find the twin pairs with a 20% or more weight difference and define
+#     treatment = 1 for heavier twin and = 0 for the lighter twin
+for(i in 1:nrow(twins)){
+  weights <- twins[i, c("dbirwt_0", "dbirwt_1")]
+  twins$weightDif[i] <- ifelse(max(weights)/min(weights) >= 1.2, 1, 0)
+}
+
+# Subset base on the twins weight difference
+twins <- twins[twins$weightDif == 1, names(twins) %!in% "weightDif"]
+
+
+
+# Rows = 1 have one twin < 2.5kg, = 2 have both twins < 2.5kg, 0 = none < 2.5kg
+for(i in 1:nrow(twins)){
+  weights <- twins[i, c("dbirwt_0", "dbirwt_1")]
+  twins$wght2500[i] <- ifelse(max(weights) >= 2500 & min(weights) < 2500, 1, 
+                              ifelse(max(weights) < 2500 & min(weights) < 2500, 2, 0))
+}
+
+# Subset base on the twins weight minimum
+#twinsMed <- twins[twins$wght2500 == 1, names(twins) %!in% "wght2500"]
+twinsMed <- twins[twins$wght2500 == 2, names(twins) %!in% "wght2500"]
+
+
+
+# Elongate the dataset so each twin has its own row
+twin0 <- names(twinsMed)[names(twinsMed) %!in% covs] %>%
+         .[str_detect(., "0")] %>% twinsMed[, .] %>% 
+         `colnames<-`(c("infant_id", "bord", "outcome", "dbirwt"))
+
+twin1 <- names(twinsMed)[names(twinsMed) %!in% covs] %>%
+         .[str_detect(., "1")] %>% twinsMed[, .] %>% 
+         `colnames<-`(c("infant_id", "bord", "outcome", "dbirwt"))
+
+elongated <- rbind(cbind(twinsMed$pairID, twin0, twinsMed[, names(twinsMed) %in% covs]),
+                   cbind(twinsMed$pairID, twin1, twinsMed[, names(twinsMed) %in% covs]) )
+names(elongated)[1] <- "pairID"
+
+
+for(i in 1:length(unique(elongated$pairID)) ){
+  ID <- unique(elongated$pairID)[i]
+  
+  one <- rbinom(1, 1, 0.5)
+  two <- ifelse(one == 1, 0, 1)
+  
+  elongated[elongated$pairID == ID, "chosen_twin"]  <- c(one, two)
+}
+
+
+# Define the heavier twin as treatment = 1 and the lighter as treatment = 0
+for(i in 1:length(unique(elongated$pairID)) ){
+  elongated[elongated$pairID == unique(elongated$pairID)[i], "treatment"] <- 
+    ifelse(subset$dbirwt == max(subset$dbirwt), 1, 0)
+}
+
+
+#write.csv(elongated, file = "twins_One2500.csv", row.names = F)
+write.csv(elongated, file = "twins_Both2500.csv", row.names = F)
+
+
+
 
 
 ####################################################################
 ## 3) BART Evaluation
+
 # read in filtered data
-twins <- read.csv("twins_data.csv")
+#twinsAll <- read.csv("twins_One2500.csv")
+twinsAll <- read.csv("twins_Both2500.csv")
+
+twins <- twinsAll[twinsAll$chosen_twin == 1, ] %>% .[, names(.) %!in% "chosen_twin"]
+
+
+
 
 #Estimate Casual Effects using BART (Melanie 4/27/23)---------------------------
 
@@ -84,8 +157,8 @@ twins <- na.omit(twins)
 
 #Create Training and Test Sets
 train_sample <- sample(1:nrow(twins),0.8*nrow(twins), replace = F)
-data_train <- twins[train_sample,]
-data_test <- twins[-train_sample,]
+data_train   <- twins[train_sample,]
+data_test    <- twins[-train_sample,]
 
 #Create vectors of outcome and treatment and matrix of confs
 outcome   <- data_train$outcome
@@ -93,20 +166,9 @@ treatment <- data_train$treatment
 confs     <- data_train[,covs]
 
 #fit model using bartc in bartCause package
-bart_fit <- bartc(response = outcome, treatment = treatment, 
-                  confounders = confs, keepTrees = TRUE,
-                  n.burn = 100, estimand  = "ate")
-CATE <- fitted(bart_fit, type = "cate")
-PATE <- fitted(bart_fit, type = "pate")
-SATE <- fitted(bart_fit, type = "sate")
-
-
-bart_fit_att <- bartc(response = outcome, treatment = treatment, 
-                  confounders = confs, keepTrees = TRUE,
-                  n.burn = 100, estimand  = "att")
-CATE_att <- fitted(bart_fit_att, type = "cate")
-PATE_att <- fitted(bart_fit_att, type = "pate")
-SATE_att <- fitted(bart_fit_att, type = "sate")
+bart_fit  <- bartc(response = outcome, treatment = treatment, 
+                   confounders = confs, keepTrees = TRUE,
+                   n.burn = 100, estimand  = "ate")
 
 
 ####################################################################
@@ -117,9 +179,6 @@ twinsSubset   <- data_train[,c(names(twins)[names(twins) %in% covs],
 linearFitting <- glm(outcome ~ ., family = binomial(link = "probit"), data = twinsSubset)
 
 linearFitting$coefficients["treatment"]
-
-## CAN WE ADD THE CATE, PATE, and SATE
-
 
 
 ####################################################################
@@ -174,13 +233,24 @@ psens(mgen1$mdata$Tr, y = mgen1$mdata$Y, Gamma = 1.7, GammaInc = 0.05)
 hlsens(mgen1$mdata$Tr, y = mgen1$mdata$Y, Gamma = 1.7, GammaInc = 0.05, 0.1)
 
 
+# Return environment to baseline
+detach(twinsSubset)
+
+
 ####################################################################
 ## 6) Comparative Metrics
 
-## For glm() and propensity score
-## CATE
-## PATE
-## SATE
+# Paper metrics for BART
+CATE <- fitted(bart_fit, type = "cate")
+PATE <- fitted(bart_fit, type = "pate")
+SATE <- fitted(bart_fit, type = "sate")
+
+
+# Paper metrics for glm()
+CATE <- fitted(linearFitting, type = "cate")
+
+# Paper metrics for propensity scoring
+
 
 ## Prediction BART and propensity score
 ##    - Melanie did it with the pbart() package
