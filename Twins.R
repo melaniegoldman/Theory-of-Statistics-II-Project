@@ -25,7 +25,12 @@ library("rgenoud")
 library("broom")
 library("plotly")
 library("pROC")
+library("remotes")
+library("plotBart")
+  # remotes::install_github("priism-center/plotBart")
+
 "%!in%" <- function(x,y)!('%in%'(x,y))
+
 set.seed(23)
 
 
@@ -183,6 +188,9 @@ confs     <- data_train[,covs]
 bart_fit  <- bartc(response = outcome, treatment = treatment, 
                    confounders = confs, keepTrees = TRUE,
                    n.burn = 100, estimand  = "ate")
+
+# Dignostic plots
+plot_trace(bart_fit, type = c("cate", "sate", "pate", "sigma"))
 
 
 ####################################################################
@@ -449,6 +457,16 @@ hists_both2500[[21]]
 ## For Shelby:
 
 ## Difference plot of the prediction on test and expectation
+test <- as.mcmc(bart_fit) #%>% as.mcmc.list()
+
+traceplot(test$mu.hat.obs, ncol = 3, use_ggplot = TRUE) +
+          theme(legend.position = 'bottom') +
+          scale_color_brewer(palette = 'Dark2')
+
+twinsAll
+
+data_test %>% names()
+
 
 ## ROC
 # source: https://www.digitalocean.com/community/tutorials/plot-roc-curve-r-programming
