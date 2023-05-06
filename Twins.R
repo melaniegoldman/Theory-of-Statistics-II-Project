@@ -23,6 +23,8 @@ library("Matching")
 library("rbounds")
 library("rgenoud")
 library("broom")
+library("plotly")
+library("pROC")
 "%!in%" <- function(x,y)!('%in%'(x,y))
 set.seed(23)
 
@@ -224,8 +226,9 @@ tempDataset <- twinsSubset
 probWeights <- glm1 %>% augment(type.predict = "response", data = tempDataset) %>%
   mutate(wts = 1/ifelse(treatment == 0, 1 - .fitted, .fitted))
 
-ggplot(probWeights, aes(x = wts)) + geom_density() + 
-  theme_classic() +
+ggplot(probWeights, aes(x = wts)) + 
+  geom_density(color = "blue") + 
+  theme_minimal() +
   labs(title = "Propensity Score Weights Skew Plot", x ="Weights", y = "Density")
 
 
@@ -285,9 +288,11 @@ ggplot(diff, aes(Difference)) +
                fill = "red", alpha = 0.2) + 
   geom_density(data = subset(diff, Eval == 'afterGen.Tr'), 
                fill = "blue", alpha = 0.2) + 
-  theme_classic() +
-  labs(title = "Xi Treatment Effects Before (red) and After (blue) GenMatch", 
-       x ="before - after matching mean treatment effect", y = "Density")
+  theme_minimal() +
+  labs(title = "Xi Treatment Effects", 
+       x ="Before - After Matching Mean Treatment Effect", y = "Density",
+       caption = "The red curve reflect matching results using standard glm() matching technique and the blue reflects 
+       matching results using Genetic Matching with default settings")
 
 ggplot(diff, aes(Difference)) + 
   geom_density(data = subset(diff, Eval == 'beforeGen.Co'), 
@@ -295,9 +300,11 @@ ggplot(diff, aes(Difference)) +
   geom_density(data = subset(diff, Eval == 'afterGen.Co'), 
                fill = "blue", alpha = 0.2) + 
   xlim(-0.25, 1) +
-  theme_classic() +
-  labs(title = "Xi Treatment Effects Before (red) and After (blue) GenMatch", 
-       x ="before - after matching mean control effect", y = "Density")
+  theme_minimal() +
+  labs(title = "Xi Control Effects", 
+       x ="Before - After Matching Mean Control Effect", y = "Density",
+       caption = "The red curve reflect matching results using standard glm() matching technique and the blue reflects 
+       matching results using Genetic Matching with default settings")
 
 
 # Sensitivity tests
@@ -319,21 +326,22 @@ SATE <- fitted(bart_fit, type = "sate")
 
 
 # Prediction for BART
+# NOTE: type must be in 'mu', 'y', 'mu.0', 'mu.1', 'y.0', 'y.1', 
+#     'icate', 'ite', 'p.score'
+# For standard glm(), when type = "response" then the P(Y = 1|X) is the output
+# source: http://www.science.smith.edu/~jcrouser/SDS293/labs/lab4-r.html#:~:text=The%20predict()%20function%20can,information%20such%20as%20the%20logit%20.
 testData <- data_test[, c(names(twins)[names(twins) %in% covs], 
                           "treatment")]
 
 names(testData)[names(testData) == "treatment"] <- "z"
 
 
-predBART <- predict(bart_fit, testData, type = "y.0") %>% t() %>%
-            as.data.frame() %>% .[,50]
-  # NOTE: type must be in 'mu', 'y', 'mu.0', 'mu.1', 'y.0', 'y.1', 
-  #     'icate', 'ite', 'p.score'
+data_test$predBARTy0 <- predict(bart_fit, testData, type = "y.0") %>% t() %>%
+                        as.data.frame() %>% .[,50]
 
-ifelse(predBART > 0.5, 1, 0)
 
-predBART2 <- predict(bart_fit, testData, type = "y.1") %>% t() %>%
-  as.data.frame() %>% .[,50]
+data_test$predBARTy1 <- predict(bart_fit, testData, type = "y.1") %>% t() %>%
+                        as.data.frame() %>% .[,50]
 
 
 # Prediction for glm()
@@ -341,6 +349,7 @@ names(testData)[names(testData) == "z"] <- "treatment"
 
 data_test$glmOutcomes <- ifelse(predict.glm(linearFitting, testData, 
                                             type = "response") < 0.5, 0, 1)
+
 
 # Prediction for standard propensity score matching
 # This section does not work. Requires the treatment column
@@ -351,7 +360,6 @@ temp_testData <- testData[, -50]
 
 data_test$propOutcomes <- ifelse(predict.glm(glm1, temp_testData, 
                                              type = "response") < 0.5, 0, 1)
-
 
 
 
@@ -368,8 +376,6 @@ data_test$propOutcomes <- ifelse(predict.glm(glm1, temp_testData,
 ## Histogram overlays - to justify connection with premies etc.?
 ## counter to the economics paper?
 ##    - all > 2.5 and < 2.5
-
-library(plotly)
 
 #Twins with all weights
 twins <- read.csv("TWINS.csv")
@@ -445,7 +451,21 @@ hists_both2500[[21]]
 ## Difference plot of the prediction on test and expectation
 
 ## ROC
-## https://www.digitalocean.com/community/tutorials/plot-roc-curve-r-programming
+# source: https://www.digitalocean.com/community/tutorials/plot-roc-curve-r-programming
+roc_glm  = roc(data_test[, 4], data_test$glmOutcomes)
+roc_bart = roc(data_test[, 4], data_test$predBARTy1)
+
+auc_glm  = round(auc(data_test[, 4], data_test$glmOutcomes), 4)
+auc_bart = round(auc(data_test[, 4], data_test$predBARTy1), 4)
+
+
+ggroc(list(glm = roc_glm, BART = roc_bart), size = 1) +
+  ggtitle('ROC Curve') +
+  labs(caption = paste0('glm AUC = ', auc_glm, ' and ', 
+                       'BART AUC = ', auc_bart),
+       x = "Specificity", y = "Sensitivity") +
+  guides(color = guide_legend(title = "")) +
+  theme_minimal()
 
 ####################################################################
 ## 8) Other
