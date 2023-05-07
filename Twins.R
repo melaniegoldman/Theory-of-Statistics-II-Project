@@ -20,6 +20,7 @@ library("tidyverse")
 library("bartCause")
 library("BART")
 library("Matching")
+library("MatchIt")
 library("rbounds")
 library("rgenoud")
 library("broom")
@@ -171,7 +172,6 @@ twins <- na.omit(twins)
 
 
 
-
 #Estimate Casual Effects using BART (Melanie 4/27/23)---------------------------
 
 #Create Training and Test Sets
@@ -182,15 +182,59 @@ data_test    <- twins[-train_sample,]
 #Create vectors of outcome and treatment and matrix of confs
 outcome   <- data_train$outcome
 treatment <- data_train$treatment
-confs     <- data_train[,covs]
+confs     <- data_train[, covs]
 
 #fit model using bartc in bartCause package
 bart_fit  <- bartc(response = outcome, treatment = treatment, 
                    confounders = confs, keepTrees = TRUE,
                    n.burn = 100, estimand  = "ate")
 
-# Dignostic plots
-plot_trace(bart_fit, type = c("cate", "sate", "pate", "sigma"))
+#######################
+# Diagnostic plots
+
+# MCMC
+plot_trace(bart_fit, type = c("cate", "sate", "pate", "sigma")) +
+  theme_minimal()
+  # chains should be well mixed to show that there is MCMC convergence
+
+# 
+plot_balance(data_train, "treatment", names(confs))
+
+# Plot common support
+plot_common_support(bart_fit) +
+  geom_point(alpha = 0.4, color = "steelblue",
+             position = position_jitter(w = 0, h = 0.15)) +
+  scale_shape_manual(values = c(3, 20)) +
+  labs(y = "Outcome")
+
+
+# Plots showing the three treatment effect metrics
+plot_CATE(
+  .model = bart_fit, 
+  type = 'density', 
+  ci_80 = TRUE, 
+  ci_95 = TRUE,
+  .mean = TRUE
+) + 
+  labs(subtitle = 'My comments on the results') +
+  theme_minimal()
+
+
+# Shows treatment heterogeneity
+plot_moderator_c_loess(bart_fit, as.numeric(data_train$gestat10), line_color = "blue") +
+  theme_minimal()
+
+plot_moderator_search(bart_fit, max_depth = 2) +
+  theme_minimal()
+
+plot_waterfall(
+  bart_fit,
+  descending = TRUE,
+  .order = NULL,
+  .color = NULL,
+  .alpha = 0.5
+) + theme_minimal()
+
 
 
 ####################################################################
@@ -206,6 +250,7 @@ linearFitting$coefficients["treatment"]
 ####################################################################
 ## 5) Propensity Score Evaluation
 ## source: https://www.youtube.com/watch?v=rHVGj1F1D_4
+## source: https://cran.r-project.org/web/packages/MatchIt/vignettes/estimating-effects.html
 attach(twinsSubset)
 
 # Defining variables (Tr is treatment, Y is outcome, X are independent variables)
@@ -218,110 +263,61 @@ X  <- cbind(pldel, birattnd, brstate, stoccfipb, mager8, ormoth, mrace, meduc6, 
             alcohol, cigar6, drink5, crace, data_year, nprevistq, dfageq, feduc6,
             dlivord_min, dtotord_min, bord, brstate_reg, stoccfipb_reg, mplbir_reg)
 
-# Descriptive statistics
-summary(Tr)
-summary(Y)
-summary(X)
 
-# Propensity score model 
-glm1 <- glm(Tr ~ X, family = binomial(link = "probit"), data = twinsSubset)
-summary(glm1)
+# Genetic matching
+gen1  <- GenMatch(Tr = Tr, X = X, BalanceMatrix = X, pop.size = 100)
+detach(twinsSubset)
+
+# Weight the fitting using the genetic matching weight matrix
+f <- as.formula(paste("outcome ~", 
+                      paste(names(twinsSubset)[!names(twinsSubset) %in% c("outcome")], 
+                            collapse = " + ")))
+
+mgen1 <- matchit(f, data = twinsSubset, method = "full", 
+                 link = "probit", estimand = "ate",
+                 weights = gen1$Weight.matrix, distance = "mahalanobis")
+
+matched_data1 <- match.data(mgen1)
+
+mgen1_fit <- glm(outcome ~ treatment, data = matched_data1)
+
+
+# Absolute standardized mean difference between before and after matching
+plot(summary(mgen1))
+
+
+# qqPlots to show before and after fitting alignments for all covariates
+plot(mgen1)
 
 
 # Plot to show the skew of the weights
 tempDataset <- twinsSubset
 
-probWeights <- glm1 %>% augment(type.predict = "response", data = tempDataset) %>%
+glmMod <- linearFitting %>% augment(type.predict = "response", data = tempDataset) %>%
   mutate(wts = 1/ifelse(treatment == 0, 1 - .fitted, .fitted))
 
-ggplot(probWeights, aes(x = wts)) + 
-  geom_density(color = "blue") + 
-  theme_minimal() +
-  labs(title = "Propensity Score Weights Skew Plot", x ="Weights", y = "Density")
+glmMod$method <- "glm"
 
 
+genmatchProp <- mgen1_fit %>% augment(type.predict = "response", data = tempDataset) %>%
+  mutate(wts = 1/ifelse(treatment == 0, 1 - .fitted, .fitted))
 
-# Average treatment on the treated effect
-rr1 <- Match(Y = Y, Tr = Tr, X = glm1$fitted)
-summary(rr1)
-
-# Checking the balancing property
-var <- brstate
-var <- frace
-var <- cigar6
-var <- drink5 # MatchBalance did not improve, but qqPlot shows acceptable matching
-var <- feduc6
-var <- dlivord_min # interesting qqPlot; shows poor matching at higher dlibord_min
-
-mBal_beforeGen <- MatchBalance(Tr ~ X, data = twinsSubset, match.out = rr1, nboots = 0)
-qqplot(var[rr1$index.control], var[rr1$index.treated])
-abline(coef = c(0, 1), col = 2)
-
-# Genetic matching
-gen1  <- GenMatch(Tr = Tr, X = X, BalanceMatrix = X, pop.size = 10)
-mgen1 <- Match(Y = Y, Tr = Tr, X = X, Weight.matrix = gen1, estimand = "ATE")
-summary.Match(mgen1)
-
-mBal <- MatchBalance(Tr ~ X, data = twinsSubset, match.out = mgen1, nboots = 0)
-
-mgen1$weights %>% unique()
+genmatchProp$method <- "Genetic Matching"
 
 
-# Plot mean treatment and control effect before/after gen matching
-a1 <- lapply(mBal_beforeGen$AfterMatching, function(x) x$mean.Tr) %>% unlist()
-b1 <- lapply(mBal_beforeGen$BeforeMatching, function(x) x$mean.Tr) %>% unlist()
-
-c1 <- lapply(mBal_beforeGen$AfterMatching, function(x) x$mean.Co) %>% unlist()
-d1 <- lapply(mBal_beforeGen$BeforeMatching, function(x) x$mean.Co) %>% unlist()
-
-diff1 <- data.frame("Difference" = b1 - a1, "Eval" = "beforeGen.Tr")
-diff2 <- data.frame("Difference" = d1 - c1, "Eval" = "beforeGen.Co")
+matching <- rbind(glmMod, genmatchProp)
 
 
-a2 <- lapply(mBal$AfterMatching, function(x) x$mean.Tr) %>% unlist()
-b2 <- lapply(mBal$BeforeMatching, function(x) x$mean.Tr) %>% unlist()
+ggplot(matching, aes(x = wts, group = method, fill = method)) + 
+  geom_density(alpha = 0.3) + theme_minimal() + xlim(0, 20) +
+  geom_vline(xintercept = median(glmMod$wts), size = 1, color="blue") +
+  geom_vline(xintercept = median(genmatchProp$wts), size = 1, color="red") +
+  scale_fill_discrete(name ="Modeling Method") +
+  labs(title = "Propensity Score Weights Skew Plot", x ="Weights", y = "Density",
+       caption = "The vertical lines show the median of both densities. Notice how the 
+                 genetic matching improved the median placement of the weights across 
+                 all covariates")
 
-c2 <- lapply(mBal$AfterMatching, function(x) x$mean.Co) %>% unlist()
-d2 <- lapply(mBal$BeforeMatching, function(x) x$mean.Co) %>% unlist()
-
-diff3 <- data.frame("Difference" = b2 - a2, "Eval" = "afterGen.Tr")
-diff4 <- data.frame("Difference" = d2 - c2, "Eval" = "afterGen.Co")
-
-diff <- rbind(diff1, diff2, diff3, diff4)
-
-
-# Before/after mean treatment effect
-ggplot(diff, aes(Difference)) +
-  geom_density(data = subset(diff, Eval == 'beforeGen.Tr'), 
-               fill = "red", alpha = 0.2) + 
-  geom_density(data = subset(diff, Eval == 'afterGen.Tr'), 
-               fill = "blue", alpha = 0.2) + 
-  theme_minimal() +
-  labs(title = "Xi Treatment Effects", 
-       x ="Before - After Matching Mean Treatment Effect", y = "Density",
-       caption = "The red curve reflect matching results using standard glm() matching technique and the blue reflects 
-       matching results using Genetic Matching with default settings")
-
-ggplot(diff, aes(Difference)) + 
-  geom_density(data = subset(diff, Eval == 'beforeGen.Co'), 
-               fill = "red", alpha = 0.2) + 
-  geom_density(data = subset(diff, Eval == 'afterGen.Co'), 
-               fill = "blue", alpha = 0.2) + 
-  xlim(-0.25, 1) +
-  theme_minimal() +
-  labs(title = "Xi Control Effects", 
-       x ="Before - After Matching Mean Control Effect", y = "Density",
-       caption = "The red curve reflect matching results using standard glm() matching technique and the blue reflects 
-       matching results using Genetic Matching with default settings")
-
-
-# Sensitivity tests
-psens(mgen1$mdata$Tr, y = mgen1$mdata$Y, Gamma = 1.7, GammaInc = 0.05)
-hlsens(mgen1$mdata$Tr, y = mgen1$mdata$Y, Gamma = 1.7, GammaInc = 0.05, 0.1)
-
-
-# Return environment to baseline
-detach(twinsSubset)
 
 
 ####################################################################
@@ -329,17 +325,16 @@ detach(twinsSubset)
 
 # Paper metrics for BART
 CATE <- fitted(bart_fit, type = "cate")
-PATE <- fitted(bart_fit, type = "pate")
-SATE <- fitted(bart_fit, type = "sate")
 
+#######################
+# Predictions
 
-# Prediction for BART
+# for BART
 # NOTE: type must be in 'mu', 'y', 'mu.0', 'mu.1', 'y.0', 'y.1', 
-#     'icate', 'ite', 'p.score'
-# For standard glm(), when type = "response" then the P(Y = 1|X) is the output
+#      'icate', 'ite', 'p.score'
+# NOTE: or standard glm(), when type = "response" then the P(Y = 1|X) is the output
 # source: http://www.science.smith.edu/~jcrouser/SDS293/labs/lab4-r.html#:~:text=The%20predict()%20function%20can,information%20such%20as%20the%20logit%20.
-testData <- data_test[, c(names(twins)[names(twins) %in% covs], 
-                          "treatment")]
+testData <- data_test[, c(covs, "treatment")]
 
 names(testData)[names(testData) == "treatment"] <- "z"
 
@@ -352,7 +347,7 @@ data_test$predBARTy1 <- predict(bart_fit, testData, type = "y.1") %>% t() %>%
                         as.data.frame() %>% .[,50]
 
 
-# Prediction for glm()
+# for glm()
 names(testData)[names(testData) == "z"] <- "treatment"
 
 data_test$glmOutcomes <- ifelse(predict.glm(linearFitting, testData, 
@@ -360,16 +355,8 @@ data_test$glmOutcomes <- ifelse(predict.glm(linearFitting, testData,
 
 
 # Prediction for standard propensity score matching
-# This section does not work. Requires the treatment column
-#     which is only present in the Match() output
-names(glm1$coefficients) <- names(linearFitting$coefficients)[-51]
-
-temp_testData <- testData[, -50]
-
-data_test$propOutcomes <- ifelse(predict.glm(glm1, temp_testData, 
+data_test$propOutcomes <- ifelse(predict.glm(mgen1_fit, testData, 
                                              type = "response") < 0.5, 0, 1)
-
-
 
 
 ####################################################################
@@ -457,11 +444,6 @@ hists_both2500[[21]]
 ## For Shelby:
 
 ## Difference plot of the prediction on test and expectation
-test <- as.mcmc(bart_fit) #%>% as.mcmc.list()
-
-traceplot(test$mu.hat.obs, ncol = 3, use_ggplot = TRUE) +
-          theme(legend.position = 'bottom') +
-          scale_color_brewer(palette = 'Dark2')
 
 twinsAll
 
@@ -470,17 +452,20 @@ data_test %>% names()
 
 ## ROC
 # source: https://www.digitalocean.com/community/tutorials/plot-roc-curve-r-programming
-roc_glm  = roc(data_test[, 4], data_test$glmOutcomes)
 roc_bart = roc(data_test[, 4], data_test$predBARTy1)
+roc_glm  = roc(data_test[, 4], data_test$glmOutcomes)
+roc_prop = roc(data_test[, 4], data_test$propOutcomes)
 
-auc_glm  = round(auc(data_test[, 4], data_test$glmOutcomes), 4)
 auc_bart = round(auc(data_test[, 4], data_test$predBARTy1), 4)
+auc_glm  = round(auc(data_test[, 4], data_test$glmOutcomes), 4)
+auc_prop = round(auc(data_test[, 4], data_test$propOutcomes), 4)
 
 
-ggroc(list(glm = roc_glm, BART = roc_bart), size = 1) +
+ggroc(list(glm = roc_glm, BART = roc_bart, Propensity = roc_prop), size = 1) +
   ggtitle('ROC Curve') +
   labs(caption = paste0('glm AUC = ', auc_glm, ' and ', 
-                       'BART AUC = ', auc_bart),
+                       'BART AUC = ', auc_bart, ' and ', 
+                       'Propensity AUC = ', auc_prop),
        x = "Specificity", y = "Sensitivity") +
   guides(color = guide_legend(title = "")) +
   theme_minimal()
@@ -558,4 +543,84 @@ plot(bartFit) # plot bart fit
 fitmat = cbind(y,Ey,lmFit$fitted,bartFit$yhat.train.mean)
 colnames(fitmat) = c('y','Ey','lm','bart')
 print(cor(fitmat))
+
+
+#######################
+# Previous matching method:
+
+# Propensity score model 
+glm1 <- glm(Tr ~ X, family = binomial(link = "probit"), data = twinsSubset)
+summary(glm1)
+
+# Average treatment on the treated effect
+rr1 <- Match(Y = Y, Tr = Tr, X = glm1$fitted)
+summary(rr1)
+
+# Checking the balancing property
+var <- brstate
+var <- frace
+var <- cigar6
+var <- drink5 # MatchBalance did not improve, but qqPlot shows acceptable matching
+var <- feduc6
+var <- dlivord_min # interesting qqPlot; shows poor matching at higher dlibord_min
+
+mBal_beforeGen <- MatchBalance(Tr ~ X, data = twinsSubset, match.out = rr1, nboots = 0)
+qqplot(var[rr1$index.control], var[rr1$index.treated])
+abline(coef = c(0, 1), col = 2)
+
+# after gen match
+mgen1 <- Match(Y = Y, Tr = Tr, X = X, Weight.matrix = gen1, estimand = "ATE")
+summary.Match(mgen1)
+
+mBal <- MatchBalance(Tr ~ X, data = twinsSubset, match.out = mgen1, nboots = 0)
+
+mgen1$weights %>% unique()
+
+
+# Plot mean treatment and control effect before/after gen matching
+a1 <- lapply(mBal_beforeGen$AfterMatching, function(x) x$mean.Tr) %>% unlist()
+b1 <- lapply(mBal_beforeGen$BeforeMatching, function(x) x$mean.Tr) %>% unlist()
+
+c1 <- lapply(mBal_beforeGen$AfterMatching, function(x) x$mean.Co) %>% unlist()
+d1 <- lapply(mBal_beforeGen$BeforeMatching, function(x) x$mean.Co) %>% unlist()
+
+diff1 <- data.frame("Difference" = b1 - a1, "Eval" = "beforeGen.Tr")
+diff2 <- data.frame("Difference" = d1 - c1, "Eval" = "beforeGen.Co")
+
+
+a2 <- lapply(mBal$AfterMatching, function(x) x$mean.Tr) %>% unlist()
+b2 <- lapply(mBal$BeforeMatching, function(x) x$mean.Tr) %>% unlist()
+
+c2 <- lapply(mBal$AfterMatching, function(x) x$mean.Co) %>% unlist()
+d2 <- lapply(mBal$BeforeMatching, function(x) x$mean.Co) %>% unlist()
+
+diff3 <- data.frame("Difference" = b2 - a2, "Eval" = "afterGen.Tr")
+diff4 <- data.frame("Difference" = d2 - c2, "Eval" = "afterGen.Co")
+
+diff <- rbind(diff1, diff2, diff3, diff4)
+
+
+# Before/after mean treatment effect
+ggplot(diff, aes(Difference)) +
+  geom_density(data = subset(diff, Eval == 'beforeGen.Tr'), 
+               fill = "red", alpha = 0.2) + 
+  geom_density(data = subset(diff, Eval == 'afterGen.Tr'), 
+               fill = "blue", alpha = 0.2) + 
+  theme_minimal() +
+  labs(title = "Xi Treatment Effects", 
+       x ="Before - After Matching Mean Treatment Effect", y = "Density",
+       caption = "The red curve reflect matching results using standard glm() matching technique and the blue reflects 
+       matching results using Genetic Matching with default settings")
+
+ggplot(diff, aes(Difference)) + 
+  geom_density(data = subset(diff, Eval == 'beforeGen.Co'), 
+               fill = "red", alpha = 0.2) + 
+  geom_density(data = subset(diff, Eval == 'afterGen.Co'), 
+               fill = "blue", alpha = 0.2) + 
+  xlim(-0.25, 1) +
+  theme_minimal() +
+  labs(title = "Xi Control Effects", 
+       x ="Before - After Matching Mean Control Effect", y = "Density",
+       caption = "The red curve reflect matching results using standard glm() matching technique and the blue reflects 
+       matching results using Genetic Matching with default settings")
 
