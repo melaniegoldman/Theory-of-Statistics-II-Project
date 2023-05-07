@@ -207,7 +207,7 @@ plot_common_support(bart_fit) +
   geom_point(alpha = 0.4, color = "steelblue",
              position = position_jitter(w = 0, h = 0.15)) +
   scale_shape_manual(values = c(3, 20)) +
-  labs(y = "Outcome")
+  labs(title = "Common Support Checks", y = "Outcome")
 
 
 # Plots showing the three treatment effect metrics
@@ -225,7 +225,8 @@ plot_moderator_c_loess(bart_fit, as.numeric(data_train$gestat10), line_color = "
 
 # Branching heterogeneity effects
 plot_moderator_search(bart_fit, max_depth = 2) +
-  theme_minimal()
+  theme_minimal() +
+  labs(title = "Exploratory Heterogeneous Effects")
 
 # Waterfall
 plot_waterfall(bart_fit, descending = TRUE, .order = NULL, .color = NULL, 
@@ -315,8 +316,8 @@ ggplot(matching, aes(x = wts, group = method, fill = method)) +
   scale_fill_discrete(name ="Modeling Method") +
   labs(title = "Propensity Score Weights Skew Plot", x ="Weights", y = "Density",
        caption = "The vertical lines show the median of both densities. Notice how the 
-                 genetic matching improved the median placement of the weights across 
-                 all covariates")
+                 genetic matching did not improved the median placement of the weights 
+                 across all covariates compared to the standard glm model")
 
 
 
@@ -452,9 +453,9 @@ data_test %>% names()
 
 ## ROC
 # source: https://www.digitalocean.com/community/tutorials/plot-roc-curve-r-programming
-roc_bart = roc(data_test[, 4], data_test$predBARTy1)
-roc_glm  = roc(data_test[, 4], data_test$glmOutcomes)
-roc_prop = roc(data_test[, 4], data_test$propOutcomes)
+roc_bart = data_test %>% roc(outcome, predBARTy1)
+roc_glm  = data_test %>% roc(outcome, glmOutcomes)
+roc_prop = data_test %>% roc(outcome, propOutcomes)
 
 auc_bart = round(auc(data_test[, 4], data_test$predBARTy1), 4)
 auc_glm  = round(auc(data_test[, 4], data_test$glmOutcomes), 4)
