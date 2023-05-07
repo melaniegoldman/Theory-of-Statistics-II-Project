@@ -194,11 +194,13 @@ bart_fit  <- bartc(response = outcome, treatment = treatment,
 
 # MCMC
 plot_trace(bart_fit, type = c("cate", "sate", "pate", "sigma")) +
-  theme_minimal()
+  theme_minimal() +
+  labs(title = "MCMC Trace Plot - Confirm Convergence")
   # chains should be well mixed to show that there is MCMC convergence
 
 # 
-plot_balance(data_train, "treatment", names(confs))
+plot_balance(data_train, "treatment", names(confs)) +
+  xlim(-0.5, 0.5)
 
 # Plot common support
 plot_common_support(bart_fit) +
@@ -209,31 +211,29 @@ plot_common_support(bart_fit) +
 
 
 # Plots showing the three treatment effect metrics
-plot_CATE(
-  .model = bart_fit, 
-  type = 'density', 
-  ci_80 = TRUE, 
-  ci_95 = TRUE,
-  .mean = TRUE
-) + 
+plot_CATE(.model = bart_fit, type = 'density', ci_80 = TRUE, ci_95 = TRUE, .mean = TRUE) + 
   labs(subtitle = 'My comments on the results') +
   theme_minimal()
 
 
-# Shows treatment heterogeneity
+# LOESS prediction of treatment heterogeneity
 plot_moderator_c_loess(bart_fit, as.numeric(data_train$gestat10), line_color = "blue") +
-  theme_minimal()
+  theme_minimal() +
+  labs(title = "Treatment Effect Heterogeneity", 
+       subtitle = "LOESS prediction of ICATEs by a continuous covariate",
+       x = "Individual CATE", y = "Gestation 10")
 
+# Branching heterogeneity effects
 plot_moderator_search(bart_fit, max_depth = 2) +
   theme_minimal()
 
-plot_waterfall(
-  bart_fit,
-  descending = TRUE,
-  .order = NULL,
-  .color = NULL,
-  .alpha = 0.5
-) + theme_minimal()
+# Waterfall
+plot_waterfall(bart_fit, descending = TRUE, .order = NULL, .color = NULL, 
+               .alpha = 0.5) + theme_minimal() + 
+  geom_point(color = "blue", size = 0.5) + 
+  labs(title = "Waterfall Plot", x = "Ordered ICATE's", y = "Individual CATE",
+       subtitle = "Point and posterior intervals of each individual’s ICATE",
+       caption = "Steeper curve implies that the treatment effect varies across individuals in the sample")
 
 
 
@@ -302,7 +302,7 @@ glmMod$method <- "glm"
 genmatchProp <- mgen1_fit %>% augment(type.predict = "response", data = tempDataset) %>%
   mutate(wts = 1/ifelse(treatment == 0, 1 - .fitted, .fitted))
 
-genmatchProp$method <- "Genetic Matching"
+genmatchProp$method <- "Propensity"
 
 
 matching <- rbind(glmMod, genmatchProp)
@@ -467,8 +467,10 @@ ggroc(list(glm = roc_glm, BART = roc_bart, Propensity = roc_prop), size = 1) +
                        'BART AUC = ', auc_bart, ' and ', 
                        'Propensity AUC = ', auc_prop),
        x = "Specificity", y = "Sensitivity") +
-  guides(color = guide_legend(title = "")) +
+  guides(color = guide_legend(title = "Modeling Method")) +
   theme_minimal()
+
+
 
 ####################################################################
 ## 8) Other
