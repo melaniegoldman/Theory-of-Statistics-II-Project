@@ -9,7 +9,7 @@
 ## 5) Propensity Score Evaluation
 ## 6) Comparitive Metrics
 ## 7) Plotting
-## 8) Other
+## 8) Previous Attempts
 
 
 
@@ -32,6 +32,18 @@ library("plotBart")
   # remotes::install_github("priism-center/plotBart")
 
 "%!in%" <- function(x,y)!('%in%'(x,y))
+
+readyToFit <- function(data){
+  # checks that at least two outcomes for each variable are available for
+  #   fitting. Most necessary for the glm() functions
+  minOptions <- sapply(data, function(x) length(unique(x))) <= 1
+  
+  if(any(minOptions) == TRUE){
+    print("rerun the sampling script for the `train_sample` variable")
+  }else{
+    print("ok to proceed with fitting")
+  }
+}
 
 set.seed(23)
 
@@ -65,17 +77,19 @@ n <- nrow(twins)
 # ~7.2%
 
 
-removed <- c("mort_0","mort_1","dbirwt_0","dbirwt_1", "infant_id_0", 
-             "infant_id_1","bord_0", "bord_1")
-covs=c("pldel","birattnd","brstate","stoccfipb","mager8","ormoth", "mrace","meduc6","dmar", 
-       "mplbir","mpre5", "adequacy", "orfath", "frace", "birmon", "gestat10", "csex", "anemia", 
-       "cardiac", "lung", "diabetes", "herpes", "hydra", "hemo", "chyper", "phyper", "eclamp", 
-       "incervix" ,"pre4000", "preterm", "renal", "rh", "uterine", "othermr",
-       "tobacco", "alcohol", "cigar6", "drink5",   "crace","data_year", "nprevistq", 
-       "dfageq", "feduc6",  "dlivord_min", "dtotord_min", "bord",
-       "brstate_reg","stoccfipb_reg", "mplbir_reg") 
+removed <- c("mort_0", "mort_1", "dbirwt_0", "dbirwt_1", "infant_id_0", 
+             "infant_id_1", "bord_0", "bord_1")
+covs = c("pldel", "birattnd", "brstate", "stoccfipb", "mager8", "ormoth", "mrace",
+         "meduc6", "dmar", "mplbir", "mpre5", "adequacy", "orfath", "frace", "birmon",
+         "gestat10", "csex", "anemia", "cardiac", "lung", "diabetes", "herpes", 
+         "hydra", "hemo", "chyper", "phyper", "eclamp", "incervix" , "pre4000", 
+         "preterm", "renal", "rh", "uterine", "othermr", "tobacco", "alcohol", 
+         "cigar6", "drink5", "crace", "data_year", "nprevistq", "dfageq", "feduc6", 
+         "dlivord_min", "dtotord_min", "bord", "brstate_reg", "stoccfipb_reg", 
+         "mplbir_reg") 
 
-ncovs=length(covs)
+
+ncovs = length(covs)
 #export data
 write.csv(twins, file = "twins_data.csv", row.names = F)
 
@@ -177,8 +191,15 @@ twins <- na.omit(twins)
 
 #Create Training and Test Sets
 train_sample <- sample(1:nrow(twins),0.8*nrow(twins), replace = F)
+  # NOTE: there the hemo covariate has 2736x 0 and 1x 1 outcomes
+  #       only one subset will contain the 1x 1 outcome. Make sure
+  #       that it is the data_train variable for the fittings
+
 data_train   <- twins[train_sample,]
+readyToFit(data_train)
+
 data_test    <- twins[-train_sample,]
+
 
 #Create vectors of outcome and treatment and matrix of confs
 outcome   <- data_train$outcome
@@ -241,16 +262,21 @@ plot_waterfall(bart_fit, descending = TRUE, .order = NULL, .color = NULL,
 
 ####################################################################
 ## 4) Linear Fitting Evaluation
-twinsSubset   <- data_train[, c(covs, "outcome", "treatment")] %>% .[, !names(.) %in% "hemo"]
+twinsSubset           <- data_train[, c(covs, "outcome", "treatment")]
 twinsSubset$treatment <- as.factor(twinsSubset$treatment)
 
 linearFitting <- glm(outcome ~ ., data = twinsSubset, family = "binomial")
 
-linearFitting$coefficients["treatment1"]
-
 
 glm_ate <- ate(linearFitting, data = twinsSubset, treatment = "treatment", se = FALSE)
 summary(glm_ate, short = TRUE, type = "diffRisk")
+
+# non-factor modeling for predictions
+twinsSubset$treatment <- as.numeric(twinsSubset$treatment)
+  twinsSubset$treatment[twinsSubset$treatment == 1] <- 0
+  twinsSubset$treatment[twinsSubset$treatment == 2] <- 1
+
+linearFitting <- glm(outcome ~ ., data = twinsSubset, family = "binomial")
 
 ####################################################################
 ## 5) Propensity Score Evaluation
@@ -270,7 +296,10 @@ X  <- cbind(pldel, birattnd, brstate, stoccfipb, mager8, ormoth, mrace, meduc6, 
 
 
 # Genetic matching
-gen1  <- GenMatch(Tr = Tr, X = X, BalanceMatrix = X, pop.size = 100)
+#gen1  <- GenMatch(Tr = Tr, X = X, BalanceMatrix = X, pop.size = 100)
+
+# Return the environment to it's baseline
+rm(list = c("Tr", "Y", "X"))
 detach(twinsSubset)
 
 # Weight the fitting using the genetic matching weight matrix
@@ -291,6 +320,14 @@ mgen1_fit <- glm(outcome ~ treatment, data = matched_data1, family = "binomial")
 mgen1_ate <- ate(mgen1_fit, data = matched_data1, treatment = "treatment", se = FALSE)
 summary(mgen1_ate, short = TRUE, type = "diffRisk")
 
+# non-factor modeling for predictions
+matched_data1$treatment <- as.numeric(matched_data1$treatment)
+  twinsSubset$treatment[twinsSubset$treatment == 1] <- 0
+  twinsSubset$treatment[twinsSubset$treatment == 2] <- 1
+
+mgen1_fit <- glm(outcome ~ treatment, data = matched_data1, family = "binomial")
+
+
 # Absolute standardized mean difference between before and after matching
 plot(summary(mgen1))
 
@@ -303,13 +340,13 @@ plot(mgen1)
 tempDataset <- twinsSubset
 
 glmMod <- linearFitting %>% augment(type.predict = "response", data = tempDataset) %>%
-  mutate(wts = 1/ifelse(treatment == 0, 1 - .fitted, .fitted))
+  mutate(wts = 1/ifelse(treatment == 0, 1 - .fitted, .fitted)) %>% as.data.frame()
 
 glmMod$method <- "glm"
 
 
 genmatchProp <- mgen1_fit %>% augment(type.predict = "response", data = tempDataset) %>%
-  mutate(wts = 1/ifelse(treatment == 0, 1 - .fitted, .fitted))
+  mutate(wts = 1/ifelse(treatment == 0, 1 - .fitted, .fitted)) %>% as.data.frame()
 
 genmatchProp$method <- "Propensity"
 
@@ -318,9 +355,9 @@ matching <- rbind(glmMod, genmatchProp)
 
 
 ggplot(matching, aes(x = wts, group = method, fill = method)) + 
-  geom_density(alpha = 0.3) + theme_minimal() + xlim(0, 20) +
-  geom_vline(xintercept = median(glmMod$wts), size = 1, color="red") +
-  geom_vline(xintercept = median(genmatchProp$wts), size = 1, color="blue") +
+  geom_density(alpha = 0.3) + theme_minimal() + xlim(0, 5) + #ylim(0, 1) +
+  geom_vline(xintercept = median(glmMod$wts), linewidth = 1, color="red") +
+  geom_vline(xintercept = median(genmatchProp$wts), linewidth = 1, color="blue") +
   scale_fill_discrete(name ="Modeling Method") +
   labs(title = "Propensity Score Weights Skew Plot", x ="Weights", y = "Density",
        caption = "The vertical lines show the median of both densities. Notice how the 
@@ -328,23 +365,44 @@ ggplot(matching, aes(x = wts, group = method, fill = method)) +
                  across all covariates compared to the standard glm model")
 
 
-
 ####################################################################
 ## 6) Comparative Metrics
 
 # Paper metrics for BART
-CATE <- fitted(bart_fit, type = "cate")
+bart_CATE  <- fitted(bart_fit, type = "cate")
+glm_CATE   <- summary(glm_ate, short = TRUE, type = "diffRisk")
+prop_CATE  <- summary(mgen1_ate, short = TRUE, type = "diffRisk")
+
+
+## Directly calculated CATE
+E_Y_X1 <- twinsAll %>% filter(treatment == 1) %>% summarise(conditional_mean = mean(outcome))
+E_Y_X0 <- twinsAll %>% filter(treatment == 0) %>% summarise(conditional_mean = mean(outcome))
+CATE_allTwins <- E_Y_X1 - E_Y_X0
+
+# confirm that the above technique works correctly
+#xi_twins <- NULL
+#for(i in 1:length(unique(twinsAll$pairID))){
+#  xi_Y1 <- twinsAll[twinsAll$pairID == unique(twinsAll$pairID)[i] & twinsAll$treatment == 1, "outcome"]
+#  xi_Y0 <- twinsAll[twinsAll$pairID == unique(twinsAll$pairID)[i] & twinsAll$treatment == 0, "outcome"]
+#  
+#  xi_twins[i] <- xi_Y1 - xi_Y0
+#}
+
+E_Y_X1 <- data_test %>% filter(treatment == 1) %>% summarise(conditional_mean = mean(outcome))
+E_Y_X0 <- data_test %>% filter(treatment == 0) %>% summarise(conditional_mean = mean(outcome))
+CATE_dataTest <- E_Y_X1 - E_Y_X0
+
+
+E_Y_X1 <- data_train %>% filter(treatment == 1) %>% summarise(conditional_mean = mean(outcome))
+E_Y_X_0 <- data_train %>% filter(treatment == 0) %>% summarise(conditional_mean = mean(outcome))
+CATE_dataTrain <- E_Y_X1 - E_Y_X0
+
 
 #######################
 # Predictions
-
-# for BART
-# NOTE: type must be in 'mu', 'y', 'mu.0', 'mu.1', 'y.0', 'y.1', 
-#      'icate', 'ite', 'p.score'
-# NOTE: or standard glm(), when type = "response" then the P(Y = 1|X) is the output
-# source: http://www.science.smith.edu/~jcrouser/SDS293/labs/lab4-r.html#:~:text=The%20predict()%20function%20can,information%20such%20as%20the%20logit%20.
 testData <- data_test[, c(covs, "treatment")]
 
+# for BART
 names(testData)[names(testData) == "treatment"] <- "z"
 
 
@@ -362,6 +420,7 @@ data_test$predBARTy1 <- predict(bart_fit, testData, type = "y.1",
                                 combineChains = TRUE) %>% apply(., 2, mean) %>% 
                         {ifelse(. < 0.5, 0, 1)}
 
+
 # for glm()
 names(testData)[names(testData) == "z"] <- "treatment"
 
@@ -369,23 +428,15 @@ data_test$glmOutcomes <- ifelse(predict.glm(linearFitting, testData,
                                             type = "response") < 0.5, 0, 1)
 
 
-# Prediction for standard propensity score matching
+# for propensity score matching
+names(testData)[names(testData) == "z"] <- "treatment"
+
 data_test$propOutcomes <- ifelse(predict.glm(mgen1_fit, testData, 
                                              type = "response") < 0.5, 0, 1)
 
 
 ####################################################################
 ## 7) Plotting
-
-## For Melanie:
-
-## Correlation plots with 
-##    - treatment ~ outcome
-##    - outcome ~ weight
-
-## Histogram overlays - to justify connection with premies etc.?
-## counter to the economics paper?
-##    - all > 2.5 and < 2.5
 
 #Twins with all weights
 twins <- read.csv("TWINS.csv")
@@ -455,16 +506,6 @@ hists_both2500[[21]]
 # }
 
 
-
-## For Shelby:
-
-## Difference plot of the prediction on test and expectation
-
-twinsAll
-
-data_test %>% names()
-
-
 ## ROC
 # source: https://www.digitalocean.com/community/tutorials/plot-roc-curve-r-programming
 roc_bart = data_test %>% roc(outcome, predBARTmu)
@@ -488,7 +529,7 @@ ggroc(list(glm = roc_glm, BART = roc_bart, Propensity = roc_prop), size = 1) +
 
 
 ####################################################################
-## 8) Other
+## 8) Previous Attempts
 # Run BART with binary response
 usek = twins[,c("outcome","treatment",covs)]
 xt = as.matrix(sapply(data.frame(usek[,-1]), as.double))
