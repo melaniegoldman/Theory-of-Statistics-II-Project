@@ -26,6 +26,7 @@ library("rgenoud")
 library("broom")
 library("plotly")
 library("pROC")
+library("riskRegression")
 library("remotes")
 library("plotBart")
   # remotes::install_github("priism-center/plotBart")
@@ -240,13 +241,16 @@ plot_waterfall(bart_fit, descending = TRUE, .order = NULL, .color = NULL,
 
 ####################################################################
 ## 4) Linear Fitting Evaluation
-twinsSubset   <- data_train[, c(names(twins)[names(twins) %in% covs], 
-                               "outcome", "treatment")]
+twinsSubset   <- data_train[, c(covs, "outcome", "treatment")] %>% .[, !names(.) %in% "hemo"]
+twinsSubset$treatment <- as.factor(twinsSubset$treatment)
 
-linearFitting <- glm(outcome ~ ., family = "binomial", data = twinsSubset)
+linearFitting <- glm(outcome ~ ., data = twinsSubset, family = "binomial")
 
-linearFitting$coefficients["treatment"]
+linearFitting$coefficients["treatment1"]
 
+
+glm_ate <- ate(linearFitting, data = twinsSubset, treatment = "treatment", se = FALSE)
+summary(glm_ate, short = TRUE, type = "diffRisk")
 
 ####################################################################
 ## 5) Propensity Score Evaluation
@@ -279,9 +283,13 @@ mgen1 <- matchit(f, data = twinsSubset, method = "full",
                  weights = gen1$Weight.matrix, distance = "mahalanobis")
 
 matched_data1 <- match.data(mgen1)
+matched_data1$treatment <- as.factor(matched_data1$treatment)
 
-mgen1_fit <- glm(outcome ~ treatment, data = matched_data1)
+mgen1_fit <- glm(outcome ~ treatment, data = matched_data1, family = "binomial")
 
+
+mgen1_ate <- ate(mgen1_fit, data = matched_data1, treatment = "treatment", se = FALSE)
+summary(mgen1_ate, short = TRUE, type = "diffRisk")
 
 # Absolute standardized mean difference between before and after matching
 plot(summary(mgen1))
@@ -311,12 +319,12 @@ matching <- rbind(glmMod, genmatchProp)
 
 ggplot(matching, aes(x = wts, group = method, fill = method)) + 
   geom_density(alpha = 0.3) + theme_minimal() + xlim(0, 20) +
-  geom_vline(xintercept = median(glmMod$wts), size = 1, color="blue") +
-  geom_vline(xintercept = median(genmatchProp$wts), size = 1, color="red") +
+  geom_vline(xintercept = median(glmMod$wts), size = 1, color="red") +
+  geom_vline(xintercept = median(genmatchProp$wts), size = 1, color="blue") +
   scale_fill_discrete(name ="Modeling Method") +
   labs(title = "Propensity Score Weights Skew Plot", x ="Weights", y = "Density",
        caption = "The vertical lines show the median of both densities. Notice how the 
-                 genetic matching did not improved the median placement of the weights 
+                 genetic matching improved the median placement of the weights 
                  across all covariates compared to the standard glm model")
 
 
@@ -340,13 +348,19 @@ testData <- data_test[, c(covs, "treatment")]
 names(testData)[names(testData) == "treatment"] <- "z"
 
 
-data_test$predBARTy0 <- predict(bart_fit, testData, type = "y.0") %>% t() %>%
-                        as.data.frame() %>% .[,50]
+data_test$predBARTmu <- predict(bart_fit, testData, type = "mu", 
+                                combineChains = TRUE) %>% apply(., 2, mean) %>% 
+                        {ifelse(. < 0.5, 0, 1)}
 
 
-data_test$predBARTy1 <- predict(bart_fit, testData, type = "y.1") %>% t() %>%
-                        as.data.frame() %>% .[,50]
+data_test$predBARTy0 <- predict(bart_fit, testData, type = "y.0", 
+                                combineChains = TRUE) %>% apply(., 2, mean) %>% 
+                        {ifelse(. < 0.5, 0, 1)}
 
+
+data_test$predBARTy1 <- predict(bart_fit, testData, type = "y.1", 
+                                combineChains = TRUE) %>% apply(., 2, mean) %>% 
+                        {ifelse(. < 0.5, 0, 1)}
 
 # for glm()
 names(testData)[names(testData) == "z"] <- "treatment"
@@ -453,11 +467,11 @@ data_test %>% names()
 
 ## ROC
 # source: https://www.digitalocean.com/community/tutorials/plot-roc-curve-r-programming
-roc_bart = data_test %>% roc(outcome, predBARTy1)
+roc_bart = data_test %>% roc(outcome, predBARTmu)
 roc_glm  = data_test %>% roc(outcome, glmOutcomes)
 roc_prop = data_test %>% roc(outcome, propOutcomes)
 
-auc_bart = round(auc(data_test[, 4], data_test$predBARTy1), 4)
+auc_bart = round(auc(data_test[, 4], data_test$predBARTmu), 4)
 auc_glm  = round(auc(data_test[, 4], data_test$glmOutcomes), 4)
 auc_prop = round(auc(data_test[, 4], data_test$propOutcomes), 4)
 
