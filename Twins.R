@@ -18,16 +18,16 @@
 library("maditr")
 library("tidyverse")
 library("bartCause")
-library("BART")
+#library("BART")
 library("Matching")
 library("MatchIt")
-library("rbounds")
+#library("rbounds")
 library("rgenoud")
 library("broom")
 library("plotly")
 library("pROC")
 library("riskRegression")
-library("remotes")
+#library("remotes")
 library("plotBart")
   # remotes::install_github("priism-center/plotBart")
 
@@ -169,7 +169,6 @@ write.csv(elongated, file = "twins_Both2500.csv", row.names = F)
 
 
 
-
 ####################################################################
 ## 3) BART Evaluation
 
@@ -217,23 +216,32 @@ bart_fit  <- bartc(response = outcome, treatment = treatment,
 # MCMC
 plot_trace(bart_fit, type = c("cate", "sate", "pate", "sigma")) +
   theme_minimal() +
-  labs(title = "MCMC Trace Plot - Confirm Convergence")
-  # chains should be well mixed to show that there is MCMC convergence
+  labs(title = "Markov chain Monte Carlo (MCMC) Trace Plot",
+       caption = "Chains should be well mixed to show that there is MCMC convergence",
+       y = "Average Treatment Effect (ATE)")
 
-# 
+# Mean difference of each treatment group by covariates
 plot_balance(data_train, "treatment", names(confs)) +
-  xlim(-0.5, 0.5)
+  geom_point(color = "blue") +
+  labs(subtitle = "Visualize variable heterogenaity between treatment 
+                   and control groups",
+       x = "Standardized Mean Difference") +
+  theme_minimal() + theme(legend.position = "none")
 
 # Plot common support
 plot_common_support(bart_fit) +
   geom_point(alpha = 0.4, color = "steelblue",
              position = position_jitter(w = 0, h = 0.15)) +
   scale_shape_manual(values = c(3, 20)) +
-  labs(title = "Common Support Checks", y = "Outcome")
-
+  labs(title = "Common Support Checks", y = "Outcome",
+       caption = "Both rules take different approaches to confirm that the assumption of sufficient overlap/common support
+                 is met. When the posterior distribution of an individuals counterfactual prediction exceeds the rules
+                 limit of the posterior of the observed predictions then the support for that counterfactual is weak. See 
+                 Hill and Su 2013 for full details")
 
 # Plots showing the three treatment effect metrics
-plot_CATE(.model = bart_fit, type = 'density', ci_80 = TRUE, ci_95 = TRUE, .mean = TRUE) + 
+plot_CATE(.model = bart_fit, type = 'density', 
+          ci_80 = TRUE, ci_95 = TRUE, .mean = TRUE) + 
   labs(subtitle = 'My comments on the results') +
   theme_minimal()
 
@@ -263,7 +271,7 @@ plot_waterfall(bart_fit, descending = TRUE, .order = NULL, .color = NULL,
 ####################################################################
 ## 4) Linear Fitting Evaluation
 twinsSubset           <- data_train[, c(covs, "outcome", "treatment")]
-twinsSubset$treatment <- as.factor(twinsSubset$treatment)
+twinsSubset$treatment <- base::as.factor(twinsSubset$treatment)
 
 linearFitting <- glm(outcome ~ ., data = twinsSubset, family = "binomial")
 
@@ -277,6 +285,8 @@ twinsSubset$treatment <- as.numeric(twinsSubset$treatment)
   twinsSubset$treatment[twinsSubset$treatment == 2] <- 1
 
 linearFitting <- glm(outcome ~ ., data = twinsSubset, family = "binomial")
+
+
 
 ####################################################################
 ## 5) Propensity Score Evaluation
@@ -312,7 +322,7 @@ mgen1 <- matchit(f, data = twinsSubset, method = "full",
                  weights = gen1$Weight.matrix, distance = "mahalanobis")
 
 matched_data1 <- match.data(mgen1)
-matched_data1$treatment <- as.factor(matched_data1$treatment)
+matched_data1$treatment <- base::as.factor(matched_data1$treatment)
 
 mgen1_fit <- glm(outcome ~ treatment, data = matched_data1, family = "binomial")
 
@@ -322,8 +332,8 @@ summary(mgen1_ate, short = TRUE, type = "diffRisk")
 
 # non-factor modeling for predictions
 matched_data1$treatment <- as.numeric(matched_data1$treatment)
-  twinsSubset$treatment[twinsSubset$treatment == 1] <- 0
-  twinsSubset$treatment[twinsSubset$treatment == 2] <- 1
+  matched_data1$treatment[matched_data1$treatment == 1] <- 0
+  matched_data1$treatment[matched_data1$treatment == 2] <- 1
 
 mgen1_fit <- glm(outcome ~ treatment, data = matched_data1, family = "binomial")
 
@@ -355,7 +365,7 @@ matching <- rbind(glmMod, genmatchProp)
 
 
 ggplot(matching, aes(x = wts, group = method, fill = method)) + 
-  geom_density(alpha = 0.3) + theme_minimal() + xlim(0, 5) + #ylim(0, 1) +
+  geom_density(alpha = 0.3) + theme_minimal() + xlim(0, 5) +
   geom_vline(xintercept = median(glmMod$wts), linewidth = 1, color="red") +
   geom_vline(xintercept = median(genmatchProp$wts), linewidth = 1, color="blue") +
   scale_fill_discrete(name ="Modeling Method") +
@@ -518,11 +528,12 @@ auc_prop = round(auc(data_test[, 4], data_test$propOutcomes), 4)
 
 
 ggroc(list(glm = roc_glm, BART = roc_bart, Propensity = roc_prop), size = 1) +
-  ggtitle('ROC Curve') +
+  ggtitle('Receiver Operating Characteristic (ROC) Curve') +
   labs(caption = paste0('glm AUC = ', auc_glm, ' and ', 
                        'BART AUC = ', auc_bart, ' and ', 
                        'Propensity AUC = ', auc_prop),
-       x = "Specificity", y = "Sensitivity") +
+       x = "Specificity", y = "Sensitivity",
+       subtitle = "Classification True Positive rate against the False Positive rate of a model") +
   guides(color = guide_legend(title = "Modeling Method")) +
   theme_minimal()
 
