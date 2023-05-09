@@ -191,9 +191,11 @@ twins <- twinsAll[twinsAll$chosen_twin %in% 1, ] %>%
 # Covariates removed from the analysis due to limited presence of
 #   outcome variation after curation
 expectedVars <- c("pairID", "infant_id", "outcome", "treatment", 
-                  "chosen_twin", "dbirwt", covs)
+                  "dbirwt", covs)
 
-expectedVars[expectedVars %!in% colnames(twins)]
+missingCov <- expectedVars[expectedVars %!in% colnames(twins)]
+
+covs <- covs[covs %!in% missingCov]
 
 
 
@@ -219,8 +221,7 @@ confs     <- data_train[, covs]
 #fit model using bartc in bartCause package
 bart_fit  <- bartc(response = outcome, treatment = treatment, 
                    confounders = confs, keepTrees = TRUE,
-                   n.burn = 100, n.sample = 1000,
-                   estimand  = "ate",
+                   n.burn = 100, n.sample = 1000, estimand  = "ate",
                    method.rsp = "bart", method.trt = "bart")
 
 
@@ -317,7 +318,7 @@ Tr <- cbind(treatment)
 Y  <- cbind(outcome)
 X  <- cbind(pldel, birattnd, brstate, stoccfipb, mager8, ormoth, mrace, meduc6, dmar, 
             mplbir, mpre5, adequacy, orfath, frace, birmon, gestat10, csex, anemia, 
-            cardiac, lung, diabetes, herpes, hydra, hemo, chyper, phyper, eclamp, 
+            cardiac, lung, diabetes, herpes, hydra, chyper, phyper, eclamp, 
             incervix, pre4000, preterm, renal, rh, uterine, othermr, tobacco, 
             alcohol, cigar6, drink5, crace, data_year, nprevistq, dfageq, feduc6,
             dlivord_min, dtotord_min, bord, brstate_reg, stoccfipb_reg, mplbir_reg)
