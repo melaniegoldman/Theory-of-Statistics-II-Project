@@ -179,13 +179,13 @@ write.csv(elongated, file = "twins_Both2500.csv", row.names = F)
 ## 3) BART Evaluation
 
 # read in filtered data
-#twinsAll <- read.csv("twins_One2500.csv")
 twinsAll <- read.csv("twins_Both2500.csv")
 
 
 # select out the randomly chosen twin from the whole dataset to
 #     simulate observational study settings
-twins <- twinsAll[twinsAll$chosen_twin %in% 1, ] %>% `rownames<-`(NULL)
+twins <- twinsAll[twinsAll$chosen_twin %in% 1, ] %>% 
+  .[, colnames(.) %!in% "chosen_twin"] %>% `rownames<-`(NULL)
 
 
 # Covariates removed from the analysis due to limited presence of
