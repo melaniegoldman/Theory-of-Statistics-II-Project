@@ -99,20 +99,17 @@ write.csv(twins, file = "twins_data.csv", row.names = F)
 twins <- read.csv("TWINS.csv")
 names(twins)[1] <- "pairID"
 
+# remove NA values
+twins <- na.omit(twins)
+
 # Find the twin pairs with a 20% or more weight difference and define
 #     treatment = 1 for heavier twin and = 0 for the lighter twin
-# for(i in 1:nrow(twins)){
-#   weights <- twins[i, c("dbirwt_0", "dbirwt_1")]
-#   twins$weightDif[i] <- ifelse(max(weights)/min(weights) >= 1.2, 1, 0)
-# }
-
 weight_pct_diff <- (twins$dbirwt_1 - twins$dbirwt_0)/(twins$dbirwt_1)
-twins$weightDif <- ifelse(weight_pct_diff > 0.2, 1, 0)
+twins$weightDif <- ifelse(weight_pct_diff >= 0.2, 1, 0)
 
 
 # Subset base on the twins weight difference
 twins <- twins[twins$weightDif == 1, names(twins) %!in% "weightDif"]
-
 
 
 # Rows = 1 have one twin < 2.5kg, = 2 have both twins < 2.5kg, 0 = none < 2.5kg
@@ -122,10 +119,10 @@ for(i in 1:nrow(twins)){
                               ifelse(max(weights) < 2500 & min(weights) < 2500, 2, 0))
 }
 
+
 # Subset based on the twins weight minimum
 #twinsMed <- twins[twins$wght2500 == 1, names(twins) %!in% "wght2500"]
 twinsMed <- twins[twins$wght2500 == 2, names(twins) %!in% "wght2500"]
-
 
 
 # Elongate the dataset so each twin has its own row
@@ -141,14 +138,24 @@ elongated <- rbind(cbind(twinsMed$pairID, twin0, twinsMed[, names(twinsMed) %in%
                    cbind(twinsMed$pairID, twin1, twinsMed[, names(twinsMed) %in% covs]) )
 names(elongated)[1] <- "pairID"
 
+
+# Randomly select twin to keep in the dataset
+selection1 <- rbinom(0.5*nrow(elongated), 1, 0.5)
+
 for(i in 1:length(unique(elongated$pairID)) ){
   ID <- unique(elongated$pairID)[i]
   
-  one <- rbinom(1, 1, 0.5)
+  one <- selection1[i]
   two <- ifelse(one == 1, 0, 1)
   
   elongated[elongated$pairID == ID,"chosen_twin"]  <- c(one, two)
 }
+
+# Remove covariates that no longer have at least two unique outcomes
+oneCatLeft <-  sapply(elongated, function(x) length(unique(x))) %>% 
+               .[. <= 1] %>% names()
+
+elongated  <- elongated[, names(elongated) %!in% oneCatLeft]
 
 
 # Define the heavier twin as treatment = 1 and the lighter as treatment = 0
@@ -168,7 +175,6 @@ write.csv(elongated, file = "twins_Both2500.csv", row.names = F)
 
 
 
-
 ####################################################################
 ## 3) BART Evaluation
 
@@ -176,13 +182,18 @@ write.csv(elongated, file = "twins_Both2500.csv", row.names = F)
 #twinsAll <- read.csv("twins_One2500.csv")
 twinsAll <- read.csv("twins_Both2500.csv")
 
+
 # select out the randomly chosen twin from the whole dataset to
 #     simulate observational study settings
-twins <- twinsAll[twinsAll$chosen_twin == 1, ] %>% 
-            .[, names(.) %!in% "chosen_twin"] %>% `rownames<-`(NULL)
+twins <- twinsAll[twinsAll$chosen_twin %in% 1, ] %>% `rownames<-`(NULL)
 
-# remove NA values
-twins <- na.omit(twins)
+
+# Covariates removed from the analysis due to limited presence of
+#   outcome variation after curation
+expectedVars <- c("pairID", "infant_id", "outcome", "treatment", 
+                  "chosen_twin", "dbirwt", covs)
+
+expectedVars[expectedVars %!in% colnames(twins)]
 
 
 
@@ -208,8 +219,10 @@ confs     <- data_train[, covs]
 #fit model using bartc in bartCause package
 bart_fit  <- bartc(response = outcome, treatment = treatment, 
                    confounders = confs, keepTrees = TRUE,
-                   n.burn = 100, estimand  = "ate",
+                   n.burn = 100, n.sample = 1000,
+                   estimand  = "ate",
                    method.rsp = "bart", method.trt = "bart")
+
 
 #######################
 # Diagnostic plots
