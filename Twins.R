@@ -106,7 +106,7 @@ names(twins)[1] <- "pairID"
 #   twins$weightDif[i] <- ifelse(max(weights)/min(weights) >= 1.2, 1, 0)
 # }
 
-weight_pct_diff <- abs(twins$dbirwt_1 - twins$dbirwt_0)/((twins$dbirwt_1 + twins$dbirwt_0)/2)
+weight_pct_diff <- (twins$dbirwt_1 - twins$dbirwt_0)/(twins$dbirwt_1)
 twins$weightDif <- ifelse(weight_pct_diff > 0.2, 1, 0)
 
 
@@ -122,7 +122,7 @@ for(i in 1:nrow(twins)){
                               ifelse(max(weights) < 2500 & min(weights) < 2500, 2, 0))
 }
 
-# Subset base on the twins weight minimum
+# Subset based on the twins weight minimum
 #twinsMed <- twins[twins$wght2500 == 1, names(twins) %!in% "wght2500"]
 twinsMed <- twins[twins$wght2500 == 2, names(twins) %!in% "wght2500"]
 
@@ -208,7 +208,8 @@ confs     <- data_train[, covs]
 #fit model using bartc in bartCause package
 bart_fit  <- bartc(response = outcome, treatment = treatment, 
                    confounders = confs, keepTrees = TRUE,
-                   n.burn = 100, estimand  = "ate")
+                   n.burn = 100, estimand  = "ate",
+                   method.rsp = "bart", method.trt = "bart")
 
 #######################
 # Diagnostic plots
@@ -234,16 +235,16 @@ plot_common_support(bart_fit) +
              position = position_jitter(w = 0, h = 0.15)) +
   scale_shape_manual(values = c(3, 20)) +
   labs(title = "Common Support Checks", y = "Outcome",
-       caption = "Both rules take different approaches to confirm that the assumption of sufficient overlap/common support
-                 is met. When the posterior distribution of an individuals counterfactual prediction exceeds the rules
-                 limit of the posterior of the observed predictions then the support for that counterfactual is weak. See 
-                 Hill and Su 2013 for full details")
+       caption = "Both rules take different approaches to confirm that the assumption of sufficient overlap/common support is met. When the posterior 
+                  distribution of an individuals counterfactual prediction exceeds the rules limit of the posterior of the observed predictions then 
+                  the support for that counterfactual is weak. See Hill and Su 2013 for full details")
 
 # Plots showing the three treatment effect metrics
 plot_CATE(.model = bart_fit, type = 'density', 
           ci_80 = TRUE, ci_95 = TRUE, .mean = TRUE) + 
-  labs(subtitle = 'My comments on the results') +
-  theme_minimal()
+  labs(title = "Posterior of the Average Treatment Effect (ATE)",
+       subtitle = "Dotted line denotes the mean of the distribution") +
+  theme_minimal() + theme(legend.position = "none")
 
 
 # LOESS prediction of treatment heterogeneity
@@ -256,7 +257,11 @@ plot_moderator_c_loess(bart_fit, as.numeric(data_train$gestat10), line_color = "
 # Branching heterogeneity effects
 plot_moderator_search(bart_fit, max_depth = 2) +
   theme_minimal() +
-  labs(title = "Exploratory Heterogeneous Effects")
+  labs(title = "Exploratory Heterogeneous Effects",
+       subtitle = "Identify potential moderating variables",
+       caption = "Represents the fit of a single regression tree on the individual CATE values, and the nodes represent the 
+                  Conditional Average Treatment Effect (CATE). Trees with different values at these terminal classification 
+                  nodes suggest strong treatment effect moderation.")
 
 # Waterfall
 plot_waterfall(bart_fit, descending = TRUE, .order = NULL, .color = NULL, 
@@ -306,7 +311,7 @@ X  <- cbind(pldel, birattnd, brstate, stoccfipb, mager8, ormoth, mrace, meduc6, 
 
 
 # Genetic matching
-#gen1  <- GenMatch(Tr = Tr, X = X, BalanceMatrix = X, pop.size = 100)
+gen1  <- GenMatch(Tr = Tr, X = X, BalanceMatrix = X, pop.size = 100)
 
 # Return the environment to it's baseline
 rm(list = c("Tr", "Y", "X"))
@@ -370,9 +375,10 @@ ggplot(matching, aes(x = wts, group = method, fill = method)) +
   geom_vline(xintercept = median(genmatchProp$wts), linewidth = 1, color="blue") +
   scale_fill_discrete(name ="Modeling Method") +
   labs(title = "Propensity Score Weights Skew Plot", x ="Weights", y = "Density",
-       caption = "The vertical lines show the median of both densities. Notice how the 
-                 genetic matching improved the median placement of the weights 
-                 across all covariates compared to the standard glm model")
+       caption = "The vertical lines show the median of both densities. Notice how the genetic matching
+                  improved the median placement of the weights across all covariates compared to the 
+                  standard glm model.")
+
 
 
 ####################################################################
@@ -404,7 +410,7 @@ CATE_dataTest <- E_Y_X1 - E_Y_X0
 
 
 E_Y_X1 <- data_train %>% filter(treatment == 1) %>% summarise(conditional_mean = mean(outcome))
-E_Y_X_0 <- data_train %>% filter(treatment == 0) %>% summarise(conditional_mean = mean(outcome))
+E_Y_X0 <- data_train %>% filter(treatment == 0) %>% summarise(conditional_mean = mean(outcome))
 CATE_dataTrain <- E_Y_X1 - E_Y_X0
 
 
@@ -443,6 +449,34 @@ names(testData)[names(testData) == "z"] <- "treatment"
 
 data_test$propOutcomes <- ifelse(predict.glm(mgen1_fit, testData, 
                                              type = "response") < 0.5, 0, 1)
+
+
+
+## Directly calculated CATE
+E_Y_X1 <- data_test %>% filter(treatment == 1) %>% summarise(conditional_mean = mean(predBARTy0))
+E_Y_X0 <- data_test %>% filter(treatment == 0) %>% summarise(conditional_mean = mean(predBARTy0))
+CATE_predBARTy0 <- E_Y_X1 - E_Y_X0
+
+
+E_Y_X1 <- data_test %>% filter(treatment == 1) %>% summarise(conditional_mean = mean(predBARTy1))
+E_Y_X0 <- data_test %>% filter(treatment == 0) %>% summarise(conditional_mean = mean(predBARTy1))
+CATE_predBARTy1 <- E_Y_X1 - E_Y_X0
+
+
+E_Y_X1 <- data_test %>% filter(treatment == 1) %>% summarise(conditional_mean = mean(predBARTmu))
+E_Y_X0 <- data_test %>% filter(treatment == 0) %>% summarise(conditional_mean = mean(predBARTmu))
+CATE_predBARTmu <- E_Y_X1 - E_Y_X0
+
+
+E_Y_X1 <- data_test %>% filter(treatment == 1) %>% summarise(conditional_mean = mean(glmOutcomes))
+E_Y_X0 <- data_test %>% filter(treatment == 0) %>% summarise(conditional_mean = mean(glmOutcomes))
+CATE_glmOutcomes <- E_Y_X1 - E_Y_X0
+
+
+E_Y_X1 <- data_test %>% filter(treatment == 1) %>% summarise(conditional_mean = mean(propOutcomes))
+E_Y_X0 <- data_test %>% filter(treatment == 0) %>% summarise(conditional_mean = mean(propOutcomes))
+CATE_propOutcomes <- E_Y_X1 - E_Y_X0
+
 
 
 ####################################################################
@@ -529,11 +563,11 @@ auc_prop = round(auc(data_test[, 4], data_test$propOutcomes), 4)
 
 ggroc(list(glm = roc_glm, BART = roc_bart, Propensity = roc_prop), size = 1) +
   ggtitle('Receiver Operating Characteristic (ROC) Curve') +
-  labs(caption = paste0('glm AUC = ', auc_glm, ' and ', 
-                       'BART AUC = ', auc_bart, ' and ', 
+  labs(caption = paste0("ROC area under the curve (AUC) is a classification error metric. AUC's closer to 1 
+                        denote better classification results.", ' glm AUC = ', auc_glm, ' and ', 'BART AUC = ', auc_bart, '\n and ', 
                        'Propensity AUC = ', auc_prop),
        x = "Specificity", y = "Sensitivity",
-       subtitle = "Classification True Positive rate against the False Positive rate of a model") +
+       subtitle = "Classification True Positive rate against the False Positive rate") +
   guides(color = guide_legend(title = "Modeling Method")) +
   theme_minimal()
 
