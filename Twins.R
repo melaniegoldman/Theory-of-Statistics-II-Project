@@ -308,7 +308,7 @@ twinsSubset$treatment <- base::as.factor(twinsSubset$treatment)
 
 linearFitting <- glm(outcome ~ ., data = twinsSubset, family = "binomial")
 
-
+# Calculate the CATE
 glm_ate <- ate(linearFitting, data = twinsSubset, treatment = "treatment", se = FALSE)
 summary(glm_ate, short = TRUE, type = "diffRisk")
 
@@ -338,14 +338,14 @@ X  <- cbind(pldel, birattnd, brstate, stoccfipb, mager8, ormoth, mrace, meduc6, 
             dlivord_min, dtotord_min, bord, brstate_reg, stoccfipb_reg, mplbir_reg)
 
 
-# Genetic matching
+# Determine weights from propensity scores found using genetic matching
 gen1  <- GenMatch(Tr = Tr, X = X, BalanceMatrix = X, pop.size = 100)
 
 # Return the environment to its baseline
 rm(list = c("Tr", "Y", "X"))
 detach(twinsSubset)
 
-# Weight the fitting using the genetic matching weight matrix
+# Applying those weigths when matching and balancing participants
 f <- as.formula(paste("outcome ~", 
                       paste(names(twinsSubset)[!names(twinsSubset) %in% c("outcome")], 
                             collapse = " + ")))
@@ -354,12 +354,14 @@ mgen1 <- matchit(f, data = twinsSubset, method = "full",
                  link = "probit", estimand = "ate",
                  weights = gen1$Weight.matrix, distance = "mahalanobis")
 
+
+# Model using the matched and weight balanced results from matchit()
 matched_data1 <- match.data(mgen1)
 matched_data1$treatment <- base::as.factor(matched_data1$treatment)
 
 mgen1_fit <- glm(outcome ~ treatment, data = matched_data1, family = "binomial")
 
-
+# Calculate the CATE
 mgen1_ate <- ate(mgen1_fit, data = matched_data1, treatment = "treatment", se = FALSE)
 summary(mgen1_ate, short = TRUE, type = "diffRisk")
 
