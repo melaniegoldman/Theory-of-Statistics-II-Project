@@ -246,7 +246,7 @@ plot_balance(data_train, "treatment", names(confs)) +
 # Plot common support
 plot_common_support(bart_fit) +
   geom_point(alpha = 0.4, color = "steelblue",
-             position = position_jitter(w = 0, h = 0.15)) +
+             position = position_jitter(w = 0.15, h = 0.15)) +
   scale_shape_manual(values = c(3, 20)) +
   labs(title = "Common Support Checks", y = "Outcome",
        caption = "Both rules take different approaches to confirm that the assumption of sufficient overlap/common support is met. When the posterior 
@@ -327,7 +327,7 @@ X  <- cbind(pldel, birattnd, brstate, stoccfipb, mager8, ormoth, mrace, meduc6, 
 # Genetic matching
 gen1  <- GenMatch(Tr = Tr, X = X, BalanceMatrix = X, pop.size = 100)
 
-# Return the environment to it's baseline
+# Return the environment to its baseline
 rm(list = c("Tr", "Y", "X"))
 detach(twinsSubset)
 
