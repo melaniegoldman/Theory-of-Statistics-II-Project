@@ -18,7 +18,7 @@
 library("maditr")
 library("tidyverse")
 library("bartCause")
-#library("BART")
+library("BART")
 library("Matching")
 library("MatchIt")
 #library("rbounds")
@@ -173,7 +173,6 @@ write.csv(elongated, file = "twins_Both2500.csv", row.names = F)
 ## 3) BART Evaluation
 
 # read in filtered data
-#twinsAll <- read.csv("twins_One2500.csv")
 twinsAll <- read.csv("twins_Both2500.csv")
 
 # select out the randomly chosen twin from the whole dataset to
@@ -181,10 +180,9 @@ twinsAll <- read.csv("twins_Both2500.csv")
 twins <- twinsAll[twinsAll$chosen_twin == 1, ] %>% 
             .[, names(.) %!in% "chosen_twin"] %>% `rownames<-`(NULL)
 
-# remove NA values
-twins <- na.omit(twins)
-
-
+# remove any missing covariates from the main dataset
+removeVar <- covs[covs %!in% colnames(twinsAll)]
+covs      <- covs[covs %!in% removeVar]
 
 #Estimate Casual Effects using BART (Melanie 4/27/23)---------------------------
 
@@ -212,22 +210,24 @@ bart_fit  <- bartc(response = outcome, treatment = treatment,
                    method.rsp = "bart", method.trt = "bart")
 
 
-library(BART)
-outcome   <- data_train$outcome
-treatment <- data_train$treatment
-confs     <- data_train[, covs]
+#######################
+# Diagnostic plots
 
-x.train <- as.matrix(data_train[, c(covs,"treatment")])
+# Variables of Importance
+x.train       <- as.matrix(data_train[, c(covs,"treatment")])
 mode(x.train) <- "double"
-y.train <- outcome
+
+y.train        <- outcome
 bart_pbart_fit <-  pbart(x.train = x.train, y.train = y.train)
 
-#compute row percentages
-percount20 = bart_pbart_fit$varcount/apply(bart_pbart_fit$varcount,1,sum)
-# mean of row percentages
-mvp20 =apply(percount20,2,mean)
-#quantiles of row percentags
-qm = apply(percount20,2,quantile,probs=c(.05,.95))
+  #compute row percentages
+  percount20 = bart_pbart_fit$varcount/apply(bart_pbart_fit$varcount,1,sum)
+
+  # mean of row percentages
+  mvp20 =apply(percount20,2,mean)
+
+  #quantiles of row percentags
+  qm = apply(percount20,2,quantile,probs=c(.05,.95))
 
 p <- length(names(mvp20))
 rgy = range(qm)
@@ -238,9 +238,6 @@ lines(1:p,mvp20,col="black",lty=4,pch=4,type="b",lwd=1.5)
 for(i in 1:p) {
   lines(c(i,i),qm[,i],col="blue",lty=3,lwd=1.0)
 }
-
-#######################
-# Diagnostic plots
 
 # MCMC
 plot_trace(bart_fit, type = c("cate", "sate", "pate", "sigma")) +
@@ -307,6 +304,10 @@ twinsSubset           <- data_train[, c(covs, "outcome", "treatment")]
 twinsSubset$treatment <- base::as.factor(twinsSubset$treatment)
 
 linearFitting <- glm(outcome ~ ., data = twinsSubset, family = "binomial")
+summary.glm(linearFitting)
+
+
+summary.glm(linearFitting)$coefficients %>% write.csv(., file = 'glm_summary.csv')
 
 # Calculate the CATE
 glm_ate <- ate(linearFitting, data = twinsSubset, treatment = "treatment", se = FALSE)
